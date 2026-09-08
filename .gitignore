@@ -1,0 +1,10 @@
+node_modules/
+dist/
+target/
+__pycache__/
+*.py[cod]
+.venv/
+.DS_Store
+.data/
+core/models/*.task
+core/models/*.download
