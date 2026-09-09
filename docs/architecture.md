@@ -1,22 +1,59 @@
-# Architecture
+# Phase 1 architecture
 
-The project is organized as a local-first modular application. The directories below are scaffolding for future implementation.
+`make run` supervises a Vite/React frontend and a loopback Python API. The API owns the session timer and SQLite writes. Camera capture and MediaPipe run in a separate, supervised Python process so native vision failures cannot stop the timer.
 
-| Directory | Intended responsibility |
+```text
+Webcam → MediaPipe face landmarks → approximate head pose
+                 ↓
+        image-free observations → away rules
+                                      ↓
+React controls ↔ local Python API → SQLite → timeline and report
+```
+
+## Modules
+
+- `apps/desktop/src`, `components`, and `pages`: frontend wiring, reusable timeline/report, and session page.
+- `apps/desktop/components/CameraPreview.tsx`: a floating live preview with mirror/retry controls. It polls the most recent JPEG at up to 5 FPS and releases image URLs when closed.
+- `apps/desktop/run.py`: service readiness checks, browser opening, port-conflict reporting, and process cleanup.
+- `apps/vision/camera.py`: optional capture, one shared-memory frame slot, and camera-process lifecycle; target 5 inference frames/second.
+- `apps/vision/face.py`: local MediaPipe Face Landmarker and checksum-verified model setup.
+- `apps/vision/pose.py`: approximate pitch/yaw/roll from the facial transformation matrix. No gaze or focus inference.
+- `apps/vision/worker.py`: HTTP API on `127.0.0.1:18765`; React reaches it through Vite's `/api` proxy.
+- `core/session.py`: one active session, a monotonic clock, explicit breaks, one-second observation persistence, and checkpoints.
+- `core/behavior/rules.py`: one face → present; fresh no-face observations sustained for 10 seconds → estimated away; missing/stale/multiple-face evidence → unknown.
+- `core/analytics/focus_blocks.py`: duration totals and longest continuous presence block.
+- `database/store.py` and `schema.sql`: serialized SQLite access, schema version 1, persisted sessions, half-open timeline intervals, and compact observations.
+
+The timeline covers elapsed session time exactly once, including explicit breaks and unknown gaps. Presence changes apply prospectively at the next observation update. An unavailable camera conservatively marks the interval since the previous update unknown. A scheduling/suspend gap longer than three seconds becomes unknown unless an explicit break is active. A crash is recovered at the last saved checkpoint; offline time is not invented as activity.
+
+## API
+
+| Request | Behavior |
 | --- | --- |
-| `apps/desktop/src` | Frontend entry point and application wiring |
-| `apps/desktop/components` | Reusable interface components |
-| `apps/desktop/pages` | Study-session history, summaries, and analysis screens |
-| `apps/desktop/src-tauri` | Native desktop shell and local process integration |
-| `apps/vision` | Camera capture, face/gaze/pose observations, optional phone detection, and worker entry point |
-| `core/features` | Aggregate observations into time windows |
-| `core/behavior` | Interpret observations using task context and rules; later classifiers |
-| `core/analytics` | Summarize focus blocks, interruptions, and patterns across sessions |
-| `core/models` | Future model assets |
-| `extensions` | Optional Chrome and VS Code integrations |
-| `database` | Local SQLite schema and migrations |
-| `tests` | Future automated tests |
+| `GET /api/health` | Service readiness |
+| `GET /api/state` | Active session, observation status, and saved session history |
+| `POST /api/camera/preview/start` | Open setup preview without creating a session, or reopen/retry the active camera |
+| `GET /api/camera/preview` | Latest in-memory JPEG; `204` when unavailable; requires `X-RUFocusing: 1` |
+| `POST /api/camera/preview/stop` | Close setup preview and stop the camera, or hide preview while active tracking continues |
+| `POST /api/sessions/start` | Start with `{ "task": "Assignment", "mode": "Math", "camera": false }` |
+| `POST /api/sessions/pause` | Begin an explicit break and release the camera |
+| `POST /api/sessions/resume` | Resume; restart the camera if enabled |
+| `POST /api/sessions/end` | Save and return the completed report |
 
-Intended data flow: observations → features → behavior estimates → session summaries → desktop analysis.
+State responses include `observation.camera_status`, typed as `off | starting | ready | unavailable` in Python and TypeScript. It is runtime metadata, not a new SQLite column. `ready` means fresh frames and successful face inference, regardless of face count; the separate presence rules determine `present`, `away`, or `unknown`.
 
-The desktop presents conclusions about completed study periods. Sensors provide observations; missing evidence stays unknown. Process communication and database integration will be defined when those modules are implemented.
+Startup is bounded to 15 seconds, after which the worker is released and retry becomes available. Frames older than two seconds are discarded and observations become unavailable. A worker exit and process-start errors produce actionable unavailable messages. The controller reuses a starting/ready setup camera when starting a session and ignores retries while initialization is underway. Retry resets the absence detector without resetting the session or rewriting its timeline. The frontend queues a close request made while preview startup is pending so closing cannot leave a setup camera behind.
+
+POST requests use JSON, `X-RUFocusing: 1`, and a 4 KiB body limit. The API validates loopback hosts and the configured frontend origin; it grants no cross-origin access. Invalid tasks, modes, and lifecycle transitions return errors. Preview responses disable caching and cross-origin embedding. No frame-upload or recording endpoint exists.
+
+The camera stores only the latest observation and preview JPEG in a 4 MiB shared-memory slot. Both reader and writer acquire its lock without blocking; a worker dying while holding the lock cannot stall the timer. A one-way pipe signals shutdown without a shared Event lock, and process joins are bounded before termination. Retry allocates fresh IPC resources. This avoids the shutdown deadlocks possible with [terminated workers holding multiprocessing queues or semaphores](https://docs.python.org/3/library/multiprocessing.html#multiprocessing.Process.terminate).
+
+Setup previews create no session or database observations; they expire after eight seconds without a frame request. Starting a webcam session reuses a healthy setup camera. Breaks and session end release it and discard the cached preview.
+
+## Model and limitations
+
+[MediaPipe Face Landmarker](https://developers.google.com/edge/mediapipe/solutions/vision/face_landmarker/python) supplies landmarks and facial transformation matrices. The model bundle is Google's float16 version 1; its source URL and SHA-256 are pinned in `face.py`. MediaPipe 0.10.32 is pinned because it passed native inference on the development Mac; 1.0.1 crashed during graph initialization there.
+
+Head angles are approximate Euler rotations in the model coordinate system, without personal calibration. Low light or occlusion can prevent detection and resemble absence. The app labels away as estimated and never treats head orientation or face presence as proof of focus. Models and dependencies retain their own licenses; the repository license covers this project's code.
+
+Tauri, extensions, richer features, and learned classifiers are still placeholders.

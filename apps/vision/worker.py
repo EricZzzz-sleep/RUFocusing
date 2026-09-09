@@ -1,5 +1,6 @@
 """Loopback-only API for the Phase 1 session and vision pipeline."""
 import argparse
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -42,7 +43,28 @@ def make_handler(controller, frontend_port=5173):
             if not self.allowed():
                 return
             if self.path == '/api/health':
-                self.respond(200, {'ok': True})
+                self.respond(200, {
+                    'ok': True,
+                    'app': 'RUFocusing',
+                    'project': hashlib.sha256(str(ROOT).encode()).hexdigest(),
+                    'frontend_port': frontend_port,
+                })
+            elif self.path == '/api/camera/preview':
+                if self.headers.get('X-RUFocusing') != '1':
+                    self.respond(403, {'error': 'Open preview from the local dashboard.'})
+                    return
+                frame = controller.preview_frame()
+                self.send_response(200 if frame else 204)
+                self.send_header('Content-Type', 'image/jpeg')
+                self.send_header('Cache-Control', 'no-store, max-age=0')
+                self.send_header('Cross-Origin-Resource-Policy', 'same-origin')
+                self.send_header('Content-Length', str(len(frame) if frame else 0))
+                self.end_headers()
+                if frame:
+                    try:
+                        self.wfile.write(frame)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
             elif self.path == '/api/state':
                 self.respond(200, controller.snapshot())
             else:
@@ -62,7 +84,11 @@ def make_handler(controller, frontend_port=5173):
                 if not isinstance(data, dict):
                     raise ValueError('Expected a JSON object.')
                 finished = None
-                if self.path == '/api/sessions/start':
+                if self.path == '/api/camera/preview/start':
+                    controller.start_preview()
+                elif self.path == '/api/camera/preview/stop':
+                    controller.stop_preview()
+                elif self.path == '/api/sessions/start':
                     controller.start(data.get('task'), data.get('mode'), data.get('camera', False))
                 elif self.path == '/api/sessions/pause':
                     controller.pause()

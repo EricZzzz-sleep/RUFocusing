@@ -160,3 +160,29 @@ th { font-weight: 550; }
 @media (max-width: 760px) { .workspace-grid { grid-template-columns: minmax(0,1fr); }aside { display: grid; grid-template-columns: 1fr 1fr; align-items: start; gap: 16px; }.metrics { grid-template-columns: repeat(2,minmax(0,1fr)); }.metric { min-height: 132px; }.header-section, .brand-divider { display: none; }h1 { font-size: 2.3rem; }.form-row { grid-template-columns: 1fr 1.2fr; }.header-inner { height: 72px; } }
 @media (max-width: 520px) { .header-inner { padding: 0 20px; }.brand { font-size: 1.05rem; }.brand-mark { width: 33px; height: 33px; font-size: 22px; }.connection { font-size: .75rem; }main { padding: 28px 18px 0; }.page-heading { margin-bottom: 25px; }.intro { font-size: .875rem; line-height: 1.6; }h1 { font-size: 2.05rem; }.eyebrow { font-size: .75rem; }.metrics { gap: 10px; margin-bottom: 22px; }.metric { padding: 18px; gap: 10px; }.metric-caption { font-size: .75rem; }.metric strong { font-size: 1.55rem; }.panel-heading { padding: 22px 20px; align-items: flex-start; }.small-badge { white-space: normal; text-align: center; max-width: 85px; }.form-row { grid-template-columns: 1fr; }.form-footer > span { display: none; }.form-footer .button { width: 100%; }.form-footer { margin-top: 22px; }aside { display: flex; }.observation-visual { height: 130px; }.history-row { padding: 18px; gap: 10px; }.row-arrow { display: none; }.history-duration span { max-width: 80px; display: block; }.history-text strong { font-size: .875rem; }.timeline-section { padding: 22px 20px; }.legend { grid-template-columns: 1fr 1fr; row-gap: 16px; }.timer { font-size: 2.8rem; }footer { flex-direction: column; gap: 12px; }.session-dialog { padding: 24px 20px; }.detail-metrics div { padding: 15px; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+.camera-preview { position: fixed; right: 24px; bottom: 24px; z-index: 20; width: min(390px,calc(100vw - 32px)); background: var(--paper); border: 1px solid #d6dfce; border-radius: 14px; box-shadow: 0 16px 65px #21381d33, 0 2px 8px #21381d14; overflow: hidden; max-height: calc(100dvh - 32px); overflow-y: auto; }
+.preview-heading { display: flex; align-items: center; justify-content: space-between; padding: 17px 18px; gap: 16px; }
+.preview-heading .eyebrow { font-size: .75rem; margin: 0 0 6px; }
+.preview-heading h2 { font-size: 1.125rem; }
+.preview-heading .icon-button { width: 32px; height: 32px; font-size: 1.4rem; }
+.preview-image-area { aspect-ratio: 4 / 3; background: #25352b; display: grid; place-items: center; overflow: hidden; }
+.preview-image-area img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.preview-image-area img.mirrored { transform: scaleX(-1); }
+.preview-placeholder { padding: 24px; text-align: center; color: #d2dfc9; }
+.preview-placeholder > span { font-size: 2.5rem; opacity: .6; }
+.preview-placeholder p { font-size: .875rem; line-height: 1.6; margin: 16px 0 0; }
+.preview-caption { padding: 17px 18px; }
+.preview-caption p { font-size: .875rem; line-height: 1.6; margin: 0 0 14px; }
+.preview-options { display: flex; justify-content: space-between; align-items: center; gap: 15px; }
+.preview-options label { margin: 0; font-size: .875rem; }
+.preview-caption > span { display: block; color: var(--muted); font-size: .75rem; line-height: 1.5; margin-top: 15px; }
+.text-button { background: transparent; border: none; color: var(--green); text-decoration: underline; text-underline-offset: 3px; font-size: .8125rem; padding: 7px 0; }
+.setup-preview-button { margin-left: 26px; }
+.show-preview { display: flex; margin: 20px auto 0; }
+.camera-status { display: inline-block; flex-shrink: 0; max-width: 140px; padding: 6px 9px; border-radius: 6px; background: #ecefe7; color: #4d5b45; font-size: .75rem; line-height: 1.4; }
+.camera-status.ready { background: #e4eedf; color: #375631; }
+.camera-status.starting { background: #f3ecd9; color: #725a20; }
+.camera-status.unavailable { background: #f5e7df; color: #804527; }
+.observation-panel .panel-heading { flex-wrap: wrap; gap: 12px; }
+.preview-status { padding: 0 18px 14px; }
+@media (max-width: 520px) { .camera-preview { right: 16px; bottom: 16px; }.preview-image-area { max-height: 35dvh; } }

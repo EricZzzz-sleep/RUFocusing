@@ -1,6 +1,7 @@
 """SQLite storage. The session controller serializes all access."""
 from pathlib import Path
 import sqlite3
+from core.analytics.focus_blocks import summarize_timeline
 
 
 class Store:
@@ -47,19 +48,11 @@ class Store:
         session = dict(row)
         session['camera_enabled'] = bool(session['camera_enabled'])
         session['timeline'] = [dict(item) for item in self.connection.execute("SELECT start,end,state FROM timeline WHERE session_id=? ORDER BY start", (identifier,))]
-        totals = dict.fromkeys(('present', 'away', 'break', 'unknown'), 0.0)
-        longest = 0
-        for item in session['timeline']:
-            length = item['end'] - item['start']
-            totals[item['state']] += length
-            if item['state'] == 'present':
-                longest = max(longest, length)
-        session['totals'] = totals
-        session['longest_present'] = longest
+        session.update(summarize_timeline(session['timeline']))
         return session
 
     def history(self):
-        rows = self.connection.execute("SELECT id FROM sessions WHERE status IN ('completed','interrupted') ORDER BY started_at DESC LIMIT 100").fetchall()
+        rows = self.connection.execute("SELECT id FROM sessions WHERE status IN ('completed','interrupted') ORDER BY started_at DESC").fetchall()
         return [self.get(row['id']) for row in rows]
 
     def close(self):

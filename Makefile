@@ -29,4 +29,5 @@ build: install
 
 test: install
 	$(VENV)/bin/python -m unittest discover -s tests -v
+	npm --prefix $(FRONTEND) test
 	npm --prefix $(FRONTEND) run build

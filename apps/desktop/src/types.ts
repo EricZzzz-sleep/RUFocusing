@@ -1,4 +1,6 @@
 export type Presence = 'present' | 'away' | 'break' | 'unknown'
+export type CameraStatus = 'off' | 'starting' | 'ready' | 'unavailable'
+export const cameraStatusLabels: Record<CameraStatus, string> = { off: 'Off', starting: 'Starting', ready: 'Ready', unavailable: 'Unavailable' }
 export interface Interval { start: number; end: number; state: Presence }
 export interface StudySession {
   id: string; task: string; mode: string; started_at: string; ended_at: string | null
@@ -8,7 +10,8 @@ export interface StudySession {
 }
 export interface AppState {
   active: StudySession | null; state: Presence; history: StudySession[]
-  observation: { available: boolean; face_count: number | null; pitch: number | null; yaw: number | null; roll: number | null; message: string }
+  observation: { camera_status: CameraStatus; available: boolean; face_count: number | null; pitch: number | null; yaw: number | null; roll: number | null; message: string }
+  preview_active: boolean
   finished?: StudySession | null
 }
 export const labels: Record<Presence, string> = { present: 'At desk', away: 'Away', break: 'Break', unknown: 'Unknown' }

@@ -33,6 +33,7 @@ class SessionController:
         self.last_wall = self.wall_clock()
         self.last_observation = -float('inf')
         self.camera_error = None
+        self.preview_until = 0.0
         self.stop_event = threading.Event()
         self.thread = None
 
@@ -48,15 +49,30 @@ class SessionController:
     def _observation(self):
         if not self.camera_enabled or self.status == 'break':
             return Observation(self.clock(), message='Camera is paused.' if self.status == 'break' else 'Camera is off. Timer-only session.')
+        return self._camera_observation()
+
+    def _camera_observation(self):
         if self.camera_error:
-            return Observation(self.clock(), message=self.camera_error)
+            return Observation(self.clock(), message=self.camera_error, camera_status='unavailable')
         observation = self.camera.snapshot()
-        if observation.available and self.clock() - observation.timestamp > 2:
-            return Observation(self.clock(), message='Camera observations are stale. The timer is still running.')
+        if observation.available and not 0 <= self.clock() - observation.timestamp <= 2:
+            return Observation(self.clock(), message='Camera observations stopped updating. Select Retry camera.', camera_status='unavailable')
         return observation
+
+    def _start_camera(self):
+        self.camera_error = None
+        self.detector = AwayDetector()
+        self.state = 'unknown'
+        try:
+            self.camera.start()
+        except (OSError, RuntimeError):
+            self.camera_error = 'The camera could not start. Check camera access, then select Retry camera.'
 
     def _advance(self):
         if not self.active_id:
+            if self.preview_until and self.clock() >= self.preview_until:
+                self.preview_until = 0.0
+                self.camera.stop()
             return
         now, wall = self.clock(), self.wall_clock()
         delta = max(0.0, now - self.last_tick)
@@ -66,7 +82,7 @@ class SessionController:
         if wall_delta - delta > 3:
             delta = wall_delta
         observation = self._observation()
-        state = 'break' if self.status == 'break' else ('unknown' if gap else self.state)
+        state = 'break' if self.status == 'break' else ('unknown' if gap or not observation.available else self.state)
         sample = observation if now - self.last_observation >= 1 and self.status != 'break' else None
         self.store.append(self.active_id, self.elapsed, self.elapsed + delta, state, utc(wall), sample)
         self.elapsed += delta
@@ -91,17 +107,47 @@ class SessionController:
             self.status = 'running'
             self.state = 'unknown'
             self.elapsed = 0.0
+            reuse_preview = camera_enabled and self.preview_until > self.clock() and self._camera_observation().camera_status in ('starting', 'ready')
+            self.preview_until = 0.0
             self.camera_enabled = camera_enabled
             self.camera_error = None
             self.detector = AwayDetector()
             self.last_tick, self.last_wall = self.clock(), self.wall_clock()
             self.last_observation = -float('inf')
-            if camera_enabled:
-                try:
-                    self.camera.start()
-                except RuntimeError as error:
-                    self.camera_error = str(error)
+            if camera_enabled and not reuse_preview:
+                self._start_camera()
+            if not camera_enabled:
+                self.camera.stop()
             return self.store.get(identifier)
+
+    def start_preview(self):
+        with self.lock:
+            self._advance()
+            if self.active_id and (not self.camera_enabled or self.status == 'break'):
+                raise ValueError('Preview is available for webcam sessions while tracking is running.')
+            if self._camera_observation().camera_status not in ('starting', 'ready'):
+                self._start_camera()
+            if not self.active_id:
+                self.preview_until = self.clock() + 8
+
+    def stop_preview(self):
+        with self.lock:
+            self.preview_until = 0.0
+            if not self.active_id:
+                self.camera.stop()
+
+    def preview_frame(self):
+        with self.lock:
+            if not self.active_id:
+                self._advance()
+            if self.active_id:
+                if not self.camera_enabled or self.status != 'running':
+                    return None
+            elif self.preview_until > self.clock():
+                self.preview_until = self.clock() + 8
+            else:
+                return None
+            return self.camera.preview_frame()
 
     def pause(self):
         with self.lock:
@@ -122,10 +168,7 @@ class SessionController:
             self.store.set_status(self.active_id, 'running')
             self.camera_error = None
             if self.camera_enabled:
-                try:
-                    self.camera.start()
-                except RuntimeError as error:
-                    self.camera_error = str(error)
+                self._start_camera()
 
     def finish(self, status='completed'):
         with self.lock:
@@ -143,9 +186,10 @@ class SessionController:
     def snapshot(self):
         with self.lock:
             self._advance()
-            observation = self._observation() if self.active_id else Observation(self.clock())
+            observation = self._observation() if self.active_id else (self._camera_observation() if self.preview_until > self.clock() else Observation(self.clock()))
             return {'active': self.store.get(self.active_id) if self.active_id else None,
-                    'state': self.state, 'observation': asdict(observation), 'history': self.store.history()}
+                    'state': self.state, 'observation': asdict(observation), 'history': self.store.history(),
+                    'preview_active': self.preview_until > self.clock()}
 
     def close(self):
         self.stop_event.set()
