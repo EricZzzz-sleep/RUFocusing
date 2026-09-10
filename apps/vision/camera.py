@@ -104,7 +104,7 @@ def _capture(index, stop, output):
                 if not encoded:
                     failure_message = 'The camera preview could not be prepared. Select Retry camera.'
                     raise RuntimeError('JPEG encoding failed.')
-                _publish(output, Observation(started, True, count, message=message, camera_status='ready', **pose), image.tobytes())
+                _publish(output, Observation(started, True, count, message=message, camera_status='ready', camera_config=(index, frame.shape[1], frame.shape[0]), **pose), image.tobytes())
             stop.wait(max(0, 0.2 - (time.monotonic() - started)))
     except Exception:
         logging.exception('Camera worker failed')

@@ -466,6 +466,90 @@ class SessionTests(unittest.TestCase):
         with self.assertRaises(ValueError): self.controller.start('Other','Coding',False)
         with self.assertRaises(ValueError): self.controller.resume()
 
+    def test_camera_toggle_preserves_session_and_persists_final_setting(self):
+        original = self.controller.start('Switch camera', 'Reading', True)
+        self.advance(4)
+        before = self.controller.snapshot()['active']
+        self.controller.set_camera(False)
+        self.assertFalse(self.camera.started)
+        self.assertIsNone(self.controller.preview_frame())
+        self.advance(5)
+        disabled = self.controller.snapshot()['active']
+        self.assertEqual(disabled['id'], original['id'])
+        self.assertFalse(disabled['camera_enabled'])
+        self.assertEqual(disabled['totals']['present'], before['totals']['present'])
+        self.assertEqual(disabled['totals']['unknown'], before['totals']['unknown'] + 5)
+        self.assertEqual(disabled['timeline'][:len(before['timeline'])], before['timeline'])
+        self.controller.set_camera(True)
+        self.assertTrue(self.camera.started)
+        self.advance(3)
+        self.controller.set_camera(False)
+        saved = self.controller.finish()
+        self.assertEqual(saved['elapsed'], 12)
+        self.assertFalse(saved['camera_enabled'])
+        self.assert_timeline(saved)
+        self.controller.close()
+        self.controller = SessionController(self.path, self.camera, self.clock, self.clock.wall)
+        self.assertEqual(self.controller.snapshot()['history'][0], saved)
+
+    def test_camera_settings_during_break_apply_on_resume(self):
+        self.controller.start('Break settings', 'Math', False)
+        self.advance(2)
+        self.controller.pause()
+        self.controller.set_camera(True)
+        self.assertFalse(self.camera.started)
+        self.advance(3)
+        self.assertEqual(self.controller.snapshot()['state'], 'break')
+        self.controller.resume()
+        self.assertTrue(self.camera.started)
+        self.controller.pause()
+        self.controller.set_camera(False)
+        self.controller.resume()
+        self.assertFalse(self.camera.started)
+        self.advance(2)
+        saved = self.controller.finish()
+        self.assertEqual(saved['totals']['break'], 3)
+        self.assert_timeline(saved)
+
+    def test_camera_toggle_is_idempotent_and_resets_absence(self):
+        self.controller.start('Absence reset', 'Coding', True)
+        self.camera.face_count = 0
+        self.advance(9)
+        starts = self.camera.starts
+        self.controller.set_camera(True)
+        self.assertEqual(self.camera.starts, starts)
+        self.controller.set_camera(False)
+        stops = self.camera.stops
+        self.controller.set_camera(False)
+        self.assertEqual(self.camera.stops, stops)
+        self.controller.set_camera(True)
+        self.advance(9)
+        self.assertEqual(self.controller.snapshot()['state'], 'unknown')
+        self.advance(2)
+        self.assertEqual(self.controller.snapshot()['state'], 'away')
+
+    def test_enabling_failed_camera_keeps_timer_and_allows_retry(self):
+        original = self.controller.start('Toggle failure', 'Lecture', False)
+        self.advance(2)
+        with patch.object(self.camera, 'start', side_effect=OSError('Cannot start camera')):
+            self.controller.set_camera(True)
+        self.advance(3)
+        state = self.controller.snapshot()
+        self.assertEqual(state['observation']['camera_status'], 'unavailable')
+        self.assertTrue(state['active']['camera_enabled'])
+        self.assertEqual(state['active']['elapsed'], 5)
+        self.assertEqual(state['active']['totals']['unknown'], 5)
+        self.controller.start_preview()
+        self.assertEqual(self.controller.snapshot()['observation']['camera_status'], 'ready')
+        self.assertEqual(self.controller.snapshot()['active']['id'], original['id'])
+
+    def test_camera_setting_validation(self):
+        with self.assertRaises(ValueError): self.controller.set_camera(True)
+        self.controller.start('Validation', 'Math', False)
+        for enabled in [None, 1, 'true', [], {}]:
+            with self.assertRaises(ValueError): self.controller.set_camera(enabled)
+        self.assertFalse(self.controller.snapshot()['active']['camera_enabled'])
+
     def test_zero_duration_session_is_valid(self):
         self.controller.start('Math','Math',False)
         session=self.controller.finish()
@@ -508,10 +592,27 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(send('/api/camera/preview/stop', {})['observation']['camera_status'], 'off')
             state=send('/api/sessions/start',{'task':'Test session','mode':'Coding','camera':False})
             self.assertEqual(state['active']['task'],'Test session')
+            enabled = send('/api/sessions/camera', {'enabled': True})
+            self.assertTrue(enabled['active']['camera_enabled'])
+            self.assertEqual(enabled['observation']['camera_status'], 'ready')
+            self.assertFalse(send('/api/sessions/camera', {'enabled': False})['active']['camera_enabled'])
+            for payload in [{}, {'enabled': 'true'}]:
+                with self.assertRaises(urllib.error.HTTPError) as invalid:
+                    send('/api/sessions/camera', payload)
+                self.assertEqual(invalid.exception.code, 400)
+                invalid.exception.close()
+            with self.assertRaises(urllib.error.HTTPError) as protected:
+                send('/api/sessions/camera', {'enabled': True}, {'Content-Type': 'application/json'})
+            self.assertEqual(protected.exception.code, 403)
+            protected.exception.close()
             self.advance(2)
             result=send('/api/sessions/end',{})
             self.assertIsNone(result['active'])
             self.assertEqual(result['finished']['elapsed'],2)
+            with self.assertRaises(urllib.error.HTTPError) as inactive:
+                send('/api/sessions/camera', {'enabled': True})
+            self.assertEqual(inactive.exception.code, 400)
+            inactive.exception.close()
             with self.assertRaises(urllib.error.HTTPError) as missing:
                 send('/api/sessions/start',{}, {'Content-Type':'application/json'})
             self.assertEqual(missing.exception.code,403)

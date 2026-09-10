@@ -58,6 +58,20 @@ class LauncherTests(unittest.TestCase):
         self.frontend.RequestHandlerClass = make_handler(None, self.port + 1)
         self.assertFalse(run.already_running(self.port, self.api_port))
 
+    def test_older_api_version_is_not_reused(self):
+        from http.server import BaseHTTPRequestHandler
+        import json
+        import hashlib
+        class OldHandler(BaseHTTPRequestHandler):
+            def log_message(self, *_args): pass
+            def do_GET(handler):
+                body = json.dumps({'ok': True, 'app': 'RUFocusing', 'project': hashlib.sha256(str(run.ROOT).encode()).hexdigest(), 'frontend_port': self.port}).encode()
+                handler.send_response(200)
+                handler.end_headers()
+                handler.wfile.write(body)
+        self.backend.RequestHandlerClass = OldHandler
+        self.assertFalse(run.already_running(self.port, self.api_port))
+
     def test_incomplete_pair_is_not_reused(self):
         self.backend.shutdown()
         self.backend.server_close()

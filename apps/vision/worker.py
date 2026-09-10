@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import signal
 import threading
+from urllib.parse import parse_qs, urlsplit
 
 from apps.vision.camera import Camera
 from core.session import SessionController
@@ -46,6 +47,7 @@ def make_handler(controller, frontend_port=5173):
                 self.respond(200, {
                     'ok': True,
                     'app': 'RUFocusing',
+                    'api_version': 2,
                     'project': hashlib.sha256(str(ROOT).encode()).hexdigest(),
                     'frontend_port': frontend_port,
                 })
@@ -65,6 +67,13 @@ def make_handler(controller, frontend_port=5173):
                         self.wfile.write(frame)
                     except (BrokenPipeError, ConnectionResetError):
                         pass
+            elif urlsplit(self.path).path == '/api/gaze/state':
+                token = parse_qs(urlsplit(self.path).query).get('calibration_id', [None])[0]
+                self.respond(200, controller.gaze_snapshot(token))
+            elif self.path.startswith('/api/sessions/') and self.path.endswith('/gaze'):
+                identifier = self.path[len('/api/sessions/'):-len('/gaze')]
+                result = controller.gaze_details(identifier)
+                self.respond(200 if result is not None else 404, result if result is not None else {'error': 'Session not found.'})
             elif self.path == '/api/state':
                 self.respond(200, controller.snapshot())
             else:
@@ -84,6 +93,9 @@ def make_handler(controller, frontend_port=5173):
                 if not isinstance(data, dict):
                     raise ValueError('Expected a JSON object.')
                 finished = None
+                if self.path in {f'/api/gaze/calibration/{action}' for action in ('start', 'target', 'complete', 'reset', 'display')}:
+                    self.respond(200, controller.calibration_action(self.path.rsplit('/', 1)[-1], data))
+                    return
                 if self.path == '/api/camera/preview/start':
                     controller.start_preview()
                 elif self.path == '/api/camera/preview/stop':
@@ -92,6 +104,8 @@ def make_handler(controller, frontend_port=5173):
                     controller.start(data.get('task'), data.get('mode'), data.get('camera', False))
                 elif self.path == '/api/sessions/pause':
                     controller.pause()
+                elif self.path == '/api/sessions/camera':
+                    controller.set_camera(data.get('enabled'))
                 elif self.path == '/api/sessions/resume':
                     controller.resume()
                 elif self.path == '/api/sessions/end':

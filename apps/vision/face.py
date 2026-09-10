@@ -52,13 +52,15 @@ class FaceDetector:
     def detect(self, frame, timestamp_ms):
         import cv2
         from apps.vision.pose import head_pose
+        from apps.vision.gaze import eye_features
         image = self.mp.Image(image_format=self.mp.ImageFormat.SRGB, data=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         timestamp_ms = max(int(timestamp_ms), self.last_timestamp + 1)
         self.last_timestamp = timestamp_ms
         result = self.detector.detect_for_video(image, timestamp_ms)
         count = len(result.face_landmarks)
         pose = head_pose(result.facial_transformation_matrixes[0]) if count == 1 and len(result.facial_transformation_matrixes) else None
-        return count, pose or {}
+        features = eye_features(result.face_landmarks[0], frame.shape[1], frame.shape[0], pose or {}) if count == 1 else {'gaze_quality': 'no_face' if count == 0 else 'multiple_faces'}
+        return count, {**(pose or {}), **features}
 
     def close(self):
         self.detector.close()

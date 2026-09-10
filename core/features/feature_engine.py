@@ -15,3 +15,8 @@ class Observation:
     roll: float | None = None
     message: str = "Camera is off."
     camera_status: CameraStatus = 'off'
+    face_bounds: tuple[float, float, float, float] | None = None
+    eye_openness: tuple[float, float] | None = None
+    gaze_features: tuple[float, ...] | None = None
+    gaze_quality: str = 'unavailable'
+    camera_config: tuple[int, int, int] | None = None
