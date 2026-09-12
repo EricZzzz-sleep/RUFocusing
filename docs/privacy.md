@@ -22,7 +22,7 @@ React controls ↔ local Python API → SQLite → timeline and report
 - `core/session.py`: one active session, a monotonic clock, explicit breaks, one-second observation persistence, and checkpoints.
 - `core/behavior/rules.py`: one face → present; fresh no-face observations sustained for 10 seconds → estimated away; missing/stale/multiple-face evidence → unknown.
 - `core/analytics/focus_blocks.py`: duration totals and longest continuous presence block.
-- `database/store.py` and `schema.sql`: serialized SQLite access, schema version 2, persisted sessions, half-open timeline intervals, and compact observations.
+- `database/store.py` and `schema.sql`: serialized SQLite access, schema version 4, persisted sessions, half-open timeline intervals, and compact observations.
 
 The timeline covers elapsed session time exactly once, including explicit breaks and unknown gaps. Presence changes apply prospectively at the next observation update. An unavailable camera conservatively marks the interval since the previous update unknown. A scheduling/suspend gap longer than three seconds becomes unknown unless an explicit break is active. A crash is recovered at the last saved checkpoint; offline time is not invented as activity.
 
@@ -71,6 +71,15 @@ The backend remains authoritative for active session time and camera settings. P
 
 See [gaze tracking](gaze-tracking.md) for the complete calibration protocol, quality thresholds, APIs, storage, and acceptance checks. The camera worker extracts compact eye features, and the parent session controller owns a separate `GazeTracker`. It samples distinct frames at approximately 5 Hz without making history/database writes at that rate. Gaze intervals are accumulated between approximately one-second checkpoints and committed with session observations. Invalid data and gaps remain unknown. Physical accuracy is unverified.
 
-API health includes `api_version: 2`; the launcher rejects older running services. Version-1 databases migrate transactionally to separate calibration/gaze tables, without altering their existing presence records.
+API health includes `api_version: 4`; the launcher rejects older running services. Version-1 databases migrate transactionally to separate calibration/gaze tables, without altering their existing presence records.
 
 Calibration uses only the already enabled camera. Full face meshes and raw training feature samples are not persisted; training samples are discarded after validation. The feature detects landmarks, not personal identity. See [gaze tracking](gaze-tracking.md) for calibration lifetime and limitations.
+
+Accuracy checks and reliability trials store local numerical results, rejection reasons, camera/display configuration, timestamps, and optional condition notes. Calibration failures and cancellations are retained for comparison. JSON exports are explicitly downloaded by the user and contain no frames, meshes, or model coefficients.
+
+
+## Saved study-pattern reports (API and schema v4)
+
+The pure `core/analytics/study_patterns.py` analysis uses saved presence timelines and exact session-relative diagnostic exclusions. Reflection and annotation tables store optional personal experience separately; they never rewrite presence or gaze observations. The controller serializes replacement saves and captures exclusion boundaries during diagnostic lifecycle changes. Migration preserves prior data and marks older uncertain boundaries unavailable. See [study-pattern definitions and migration behavior](study-patterns.md).
+
+Personal ratings and timeline tags stay in the same local SQLite database as session history. No additional frames, meshes, identities, app/site activity, or model inputs are collected for these reports.

@@ -200,7 +200,7 @@ class GazeStorageTests(unittest.TestCase):
     def test_migration_preserves_populated_v1_and_reopens(self):
         self.make_legacy()
         store = Store(self.path)
-        self.assertEqual(store.connection.execute('PRAGMA user_version').fetchone()[0], 2)
+        self.assertEqual(store.connection.execute('PRAGMA user_version').fetchone()[0], 4)
         old = store.get('old')
         self.assertEqual(old['status'], 'interrupted')
         self.assertEqual(old['elapsed'], 10)

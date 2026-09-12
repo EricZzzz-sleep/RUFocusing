@@ -1,12 +1,13 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { request } from '../src/api'
+import { request, jsonRequest } from '../src/api'
 import type { AppState, CameraStatus, StudySession } from '../src/types'
 import Dashboard from './Dashboard'
 
 vi.mock('../components/GazePanel', () => ({ default: () => null }))
-vi.mock('../src/api', () => ({ request: vi.fn() }))
+vi.mock('../components/StudyPatternReport', () => ({ default: () => <p>Study patterns report</p> }))
+vi.mock('../src/api', () => ({ request: vi.fn(), jsonRequest: vi.fn().mockResolvedValue([]) }))
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
 function state(status: CameraStatus): AppState {
@@ -24,7 +25,9 @@ describe('Dashboard camera controls', () => {
   let host: HTMLDivElement
   let root: Root
   beforeEach(() => {
+    window.history.replaceState(null, '', '#record')
     vi.useFakeTimers()
+    vi.mocked(jsonRequest).mockResolvedValue([])
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 204 })))
     host = document.createElement('div')
     document.body.append(host)
@@ -39,6 +42,92 @@ describe('Dashboard camera controls', () => {
     Reflect.deleteProperty(HTMLDialogElement.prototype, 'close')
     vi.unstubAllGlobals()
     vi.useRealTimers()
+  })
+
+
+  async function navigateTo(page: string) {
+    await act(async () => {
+      window.history.pushState(null, '', `#${page}`)
+      window.dispatchEvent(new HashChangeEvent('hashchange'))
+    })
+  }
+
+  it('defaults to Analysis, normalizes unknown routes, and supports browser navigation', async () => {
+    window.history.replaceState(null, '', '/')
+    vi.mocked(request).mockResolvedValue(state('off'))
+    await act(async () => root.render(<Dashboard />))
+    expect(window.location.hash).toBe('#analysis')
+    expect(host.querySelector('nav [aria-current="page"]')?.textContent).toBe('Analysis')
+    expect(host.querySelector('#session')?.closest('[hidden]')).not.toBeNull()
+    expect(host.querySelector('.history-panel')?.closest('[hidden]')).toBeNull()
+    await navigateTo('record')
+    expect(host.querySelector('#session')?.closest('[hidden]')).toBeNull()
+    expect(document.activeElement).toBe(host.querySelector('h1'))
+    await navigateTo('unknown')
+    expect(window.location.hash).toBe('#analysis')
+    await act(async () => { window.history.replaceState(null, '', '#record'); window.dispatchEvent(new PopStateEvent('popstate')) })
+    expect(host.querySelector('nav [aria-current="page"]')?.textContent).toBe('Record')
+  })
+
+  it('retains the draft and history filters across pages', async () => {
+    vi.mocked(request).mockResolvedValue(state('off'))
+    await act(async () => root.render(<Dashboard />))
+    const input = host.querySelector<HTMLInputElement>('#task')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Keep this task')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await navigateTo('analysis')
+    const period = host.querySelector<HTMLSelectElement>('#period')!
+    const search = host.querySelector<HTMLInputElement>('#history-search')!
+    await act(async () => {
+      period.value = '30'; period.dispatchEvent(new Event('change', { bubbles: true }))
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, 'Algebra')
+      search.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await navigateTo('record')
+    expect(input.value).toBe('Keep this task')
+    await navigateTo('analysis')
+    expect(period.value).toBe('30')
+    expect(search.value).toBe('Algebra')
+  })
+
+  it('hides the preview on Analysis while preserving the active session', async () => {
+    vi.mocked(request).mockResolvedValue(activeState(true))
+    await act(async () => root.render(<Dashboard />))
+    await clickButton(host, 'Show camera preview')
+    expect(host.querySelector('.camera-preview')).not.toBeNull()
+    await navigateTo('analysis')
+    expect(host.querySelector('.camera-preview')).toBeNull()
+    expect(host.querySelector('.active-session-status')?.textContent).toContain('Session running')
+    expect(vi.mocked(request).mock.calls.map(([path]) => path)).not.toContain('/api/sessions/camera')
+    await navigateTo('record')
+    expect(host.querySelector('.camera-preview')).toBeNull()
+    expect(host.querySelector('[role="timer"]')?.textContent).toBe('00:01:20')
+  })
+
+  it('cleans up a pending setup preview after navigation, even when returning before completion', async () => {
+    let resolveStart!: (value: AppState) => void
+    vi.mocked(request).mockImplementation(path => path === '/api/camera/preview/start' ? new Promise(resolve => { resolveStart = resolve }) : Promise.resolve(state('off')))
+    await act(async () => root.render(<Dashboard />))
+    await act(async () => host.querySelector<HTMLInputElement>('#session input[type="checkbox"]')!.click())
+    await navigateTo('analysis')
+    await navigateTo('record')
+    await act(async () => resolveStart(state('starting')))
+    expect(host.querySelector('.camera-preview')).toBeNull()
+    expect(vi.mocked(request).mock.calls.filter(([path]) => path === '/api/camera/preview/stop')).toHaveLength(1)
+  })
+
+  it('does not reopen preview after a camera-enable response arrives on Analysis', async () => {
+    let resolveEnable!: (value: AppState) => void
+    vi.mocked(request).mockImplementation(path => path === '/api/sessions/camera' ? new Promise(resolve => { resolveEnable = resolve }) : Promise.resolve(activeState(false)))
+    await act(async () => root.render(<Dashboard />))
+    await act(async () => host.querySelector<HTMLInputElement>('.live-camera-control input')!.click())
+    await navigateTo('analysis')
+    await act(async () => resolveEnable(activeState(true)))
+    expect(host.querySelector('.camera-preview')).toBeNull()
+    expect(window.location.hash).toBe('#analysis')
+    expect(vi.mocked(request).mock.calls.filter(([path]) => path === '/api/sessions/camera')).toHaveLength(1)
   })
 
   it('shows starting in both panels and does not send repeated retries', async () => {
@@ -118,7 +207,8 @@ describe('Dashboard camera controls', () => {
     expect(dialog.textContent).toContain('0%')
     await act(async () => dialog.dispatchEvent(new Event('cancel', { cancelable: true })))
     expect(host.querySelector('dialog')).toBeNull()
-    expect(host.querySelector('#task')).toBe(document.activeElement)
+    expect(host.querySelector('h1')).toBe(document.activeElement)
+    expect(window.location.hash).toBe('#analysis')
   })
 
   it('recovers a running session after connection loss', async () => {

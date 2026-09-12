@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { request } from '../src/api'
-import type { AppState, StudySession } from '../src/types'
+import type { AppState, StudySession, WorkspacePage, PreviewPosition } from '../src/types'
 import { cameraStatusLabels, duration, labels, studyModes, timer } from '../src/types'
 import Timeline from '../components/Timeline'
 import SessionDetails from '../components/SessionDetails'
 import CameraPreview from '../components/CameraPreview'
 import StudyTrends from '../components/StudyTrends'
+import StudyPatterns from '../components/StudyPatterns'
 import GazePanel from '../components/GazePanel'
 import SessionHistory from '../components/SessionHistory'
 import { dailyStudy, inPeriod, localDay, periods, summarize } from '../src/analysis'
@@ -19,6 +20,11 @@ const progress: Record<string, string> = {
 }
 
 export default function Dashboard() {
+  const [page, setPage] = useState<WorkspacePage>(() => window.location.hash === '#record' ? 'record' : 'analysis')
+  const pageRef = useRef(page)
+  const previewGeneration = useRef(0)
+  const [previewPosition, setPreviewPosition] = useState<PreviewPosition | null>(null)
+  const heading = useRef<HTMLHeadingElement>(null)
   const [data, setData] = useState<AppState | null>(null)
   const [task, setTask] = useState('')
   const [mode, setMode] = useState('Math')
@@ -53,15 +59,34 @@ export default function Dashboard() {
     return () => { stopped = true; clearTimeout(timeout) }
   }, [])
 
+  function navigate(next: WorkspacePage, push = true) {
+    if (window.location.hash !== `#${next}`) window.history[push ? 'pushState' : 'replaceState'](null, '', `#${next}`)
+    if (pageRef.current === next) return
+    pageRef.current = next
+    previewGeneration.current++
+    setPage(next)
+    setSelected(null)
+    if (next === 'analysis') closePreview()
+  }
+  useEffect(() => {
+    const changed = () => navigate(window.location.hash === '#record' ? 'record' : 'analysis', false)
+    changed()
+    window.addEventListener('hashchange', changed)
+    window.addEventListener('popstate', changed)
+    return () => { window.removeEventListener('hashchange', changed); window.removeEventListener('popstate', changed) }
+  }, [])
+  useEffect(() => { if (!selected) heading.current?.focus() }, [page])
+
   async function action(name: string, body: object = {}, cameraCommand = false) {
     if (busyRef.current) return
-    busyRef.current = true; epoch.current++; setPending(name); setError('')
+    const generation = previewGeneration.current
+    busyRef.current = true; epoch.current++; setPending(name); if (name !== 'preview/stop') setError('')
     try {
       const next = await request(`/api/${cameraCommand ? 'camera' : 'sessions'}/${name}`, body)
       setData(next); setConnected(true)
-      if (next.finished) { setSelected(next.finished); setPreviewOpen(false) }
+      if (next.finished) { navigate('analysis'); setSelected(next.finished); setPreviewOpen(false) }
       if (name === 'pause' || (name === 'camera' && !next.active?.camera_enabled)) setPreviewOpen(false)
-      if (['start', 'resume', 'camera'].includes(name) && next.active?.camera_enabled && next.active.status === 'running' && !pendingPreviewClose.current) setPreviewOpen(true)
+      if (['start', 'resume', 'camera'].includes(name) && next.active?.camera_enabled && next.active.status === 'running' && !pendingPreviewClose.current && pageRef.current === 'record' && generation === previewGeneration.current) setPreviewOpen(true)
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'The request failed.') }
     finally {
       busyRef.current = false; setPending(null)
@@ -72,7 +97,7 @@ export default function Dashboard() {
     }
   }
   function openPreview() {
-    if (busyRef.current) return
+    if (busyRef.current || pageRef.current !== 'record') return
     setPreviewOpen(true)
     if (data?.observation.camera_status !== 'starting') void action('preview/start', {}, true)
   }
@@ -110,16 +135,24 @@ export default function Dashboard() {
   ]
 
   return <>
-    <a className="skip-link" href="#main-content">Skip to study workspace</a>
-    <header className="app-header"><div className="header-inner"><a className="brand" href="/" aria-label="RUFocusing home"><span className="brand-mark" aria-hidden="true">r<span>u</span></span>RUFocusing<span className="brand-divider" /><span className="header-section">Study space</span></a><span className={`connection ${connected ? 'online' : ''}`}><i />{connected ? 'Local workspace' : 'Connecting…'}</span></div></header>
+    <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); document.getElementById('main-content')?.focus() }}>Skip to study workspace</a>
+    <header className="app-header"><div className="header-inner"><a className="brand" href="#analysis" onClick={event => { event.preventDefault(); navigate('analysis') }} aria-label="RUFocusing home"><span className="brand-mark" aria-hidden="true">r<span>u</span></span>RUFocusing<span className="brand-divider" /><span className="header-section">Study space</span></a><span className={`connection ${connected ? 'online' : ''}`}><i />{connected ? 'Local workspace' : 'Connecting…'}</span></div></header>
     <main id="main-content" tabIndex={-1}>
-      <div className="page-heading"><div><p className="eyebrow">A LITTLE MORE INTENTION</p><h1>Your study overview<span>.</span></h1><p className="intro">Make time for your work. See how each session unfolds.</p></div><a className="button secondary session-jump" href="#session">{active ? 'Go to active session' : 'Record a session'}<span aria-hidden="true">↓</span></a></div>
+      <nav className="workspace-nav" aria-label="Study workspace">{(['analysis', 'record'] as const).map(item => <a key={item} href={`#${item}`} aria-current={page === item ? 'page' : undefined} onClick={event => { event.preventDefault(); navigate(item) }}>{item === 'analysis' ? 'Analysis' : 'Record'}</a>)}</nav>
+      <div className="page-heading"><div><p className="eyebrow">{page === 'analysis' ? 'A LITTLE MORE INTENTION' : 'ONE THING AT A TIME'}</p><h1 ref={heading} tabIndex={-1}>{page === 'analysis' ? 'Your study overview' : 'Your study session'}<span>.</span></h1><p className="intro">{page === 'analysis' ? 'Make time for your work. See how each session unfolds.' : 'Set up your camera, calibrate your gaze, and make time to study.'}</p></div>{page === 'analysis' && <a className="button secondary session-jump" href="#record" onClick={event => { event.preventDefault(); navigate('record') }}>{active ? 'Return to session' : 'Record a session'}<span aria-hidden="true">→</span></a>}</div>
+      {page === 'analysis' && active && <div className="notice active-session-status">{active.status === 'break' ? 'On a break' : 'Session running'} · {active.task} · {timer(active.elapsed)}</div>}
       {!connected && <div className="notice" role="status">{data ? 'Connection lost. Reconnecting to your local session…' : 'Connecting to the local service. If this persists, start the app with make run.'}</div>}
       {error && <div className="error" role="alert">{error}</div>}
+      <div hidden={page !== 'analysis'}>
       <div className="overview-heading"><div><h2>Saved session overview</h2><p>Presence estimates across your recorded study time.</p></div><div className="period-control"><label htmlFor="period">Date range</label><select id="period" value={period} onChange={event => setPeriod(event.target.value as Period)}>{(Object.keys(periods) as Period[]).map(value => <option key={value} value={value}>{periods[value]}</option>)}</select></div></div>
       <section className="metrics" aria-label="Saved session overview">{metrics.map(([label, value, caption], index) => <div className={`metric ${index === 2 ? 'featured' : ''}`} key={label}><span className="metric-label">{label}</span><strong>{data ? value : '—'}</strong><span className="metric-caption">{caption}</span></div>)}</section>
       <StudyTrends days={daily} loading={!data} />
+      <StudyPatterns sessions={history} loading={!data} />
+      <SessionHistory sessions={history} loading={!data} onSelect={setSelected} />
+      </div>
+      <div hidden={page !== 'record'}>
       <div className="workspace-grid">
+        <div className="session-column">
           <section className="panel session-panel" id="session" tabIndex={-1} aria-label="Session recording">
             <div className="panel-heading"><div><span className="eyebrow">{active ? 'IN PROGRESS' : 'ONE THING AT A TIME'}</span><h2>{active ? active.task : 'Settle into a session'}</h2></div><span className={`small-badge ${active ? 'is-active' : ''}`}>{active ? active.status === 'break' ? 'On a break' : 'Session active' : 'Ready when you are'}</span></div>
             {active ? <>
@@ -132,7 +165,6 @@ export default function Dashboard() {
               <div className="form-footer"><span>Your session stays on this device.</span><button type="submit" className="button primary" disabled={busy || !connected || !task.trim()}>{pending === 'start' ? 'Starting session…' : 'Start session'}<span aria-hidden="true">→</span></button></div>
             </form>}
           </section>
-        <aside>
           <section className="panel observation-panel"><div className="panel-heading"><div><span className="eyebrow">THE HERE & NOW</span><h2>Observations</h2></div><span className={`camera-status ${cameraStatus}`} role="status">Camera: {cameraStatusLabels[cameraStatus]}</span></div>
             {active && <div className="live-camera-control"><label className="checkbox-label"><input type="checkbox" checked={active.camera_enabled} disabled={busy || !connected} onChange={event => void action('camera', { enabled: event.target.checked })} />Webcam observations</label><p>{active.status === 'break' ? active.camera_enabled ? 'Camera stays off during your break. Observations will resume with your session.' : 'Camera stays off during your break and on resume.' : active.camera_enabled ? 'Observations are on. Closing the preview keeps tracking on.' : 'Camera is off. Your timer continues; this time is marked unknown.'}</p></div>}
             <div className={`observation-visual ${cameraStatus === 'ready' && data?.observation.face_count === 1 ? 'detected' : ''}`} aria-hidden="true"><div className="focus-corners"><span className="observation-glyph">◎</span></div></div>
@@ -142,15 +174,17 @@ export default function Dashboard() {
             {observing && <button type="button" className="button secondary show-preview" disabled={busy || !connected || (cameraStatus === 'starting' && previewOpen)} onClick={openPreview}>{cameraStatus === 'unavailable' ? 'Retry camera' : 'Show camera preview'}</button>}
             <p className="footnote">Angles are approximate. Looking down does not mark you as away.</p>
           </section>
-          <GazePanel enabled={observing && connected && cameraStatus === 'ready'} busy={busy} />
+        </div>
+        <aside>
+          <GazePanel inSession={Boolean(active && active.status === 'running')} visible={page === 'record'} enabled={observing && connected && cameraStatus === 'ready'} busy={busy} />
           <section className="explanation-card"><span className="eyebrow">WHAT THE TIMELINE TELLS YOU</span><h2>Presence is a starting point.</h2><p>At desk means a face was detected. Away means no face was detected for at least 10 seconds.</p><p>Missing camera data stays unknown. These observations describe your session, not how deeply you were focused.</p><div className="privacy-line"><span aria-hidden="true">◎</span> Local processing. No video recordings.</div></section>
         </aside>
-        <SessionHistory sessions={history} loading={!data} onSelect={setSelected} />
+      </div>
       </div>
       <footer><span>RUFocusing <span aria-hidden="true">/</span> A little time, well understood.</span><span>Saved on your device</span></footer>
     </main>
     <div className="action-status" role="status" aria-live="polite">{pending ? progress[pending] : ''}</div>
-    {previewOpen && <CameraPreview status={cameraStatus} message={cameraMessage} inSession={Boolean(active)} onClose={closePreview} onRetry={openPreview} busy={busy || !connected} />}
+    {page === 'record' && previewOpen && <CameraPreview position={previewPosition} onPositionChange={setPreviewPosition} status={cameraStatus} message={cameraMessage} inSession={Boolean(active)} onClose={closePreview} onRetry={openPreview} busy={busy || !connected} />}
     {selected && <SessionDetails session={selected} onClose={() => setSelected(null)} />}
   </>
 }

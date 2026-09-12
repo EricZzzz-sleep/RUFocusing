@@ -3,6 +3,8 @@ import type { StudySession } from '../src/types'
 import { dateLabel, duration } from '../src/types'
 import Timeline from './Timeline'
 import GazeReport from './GazeReport'
+import SessionDiagnostics from './SessionDiagnostics'
+import StudyPatternReport from './StudyPatternReport'
 import { coverage, studyTime } from '../src/analysis'
 
 export default function SessionDetails({ session, onClose }: { session: StudySession; onClose: () => void }) {
@@ -13,7 +15,7 @@ export default function SessionDetails({ session, onClose }: { session: StudySes
     const overflow = document.body.style.overflow
     dialog.showModal()
     document.body.style.overflow = 'hidden'
-    return () => { dialog.close(); document.body.style.overflow = overflow; if (previousFocus?.isConnected) previousFocus.focus(); else document.querySelector<HTMLInputElement>('#task')?.focus() }
+    return () => { dialog.close(); document.body.style.overflow = overflow; if (previousFocus?.isConnected && !previousFocus.closest('[hidden]')) previousFocus.focus(); else document.querySelector<HTMLElement>('h1')?.focus() }
   }, [])
   const observed = session.totals.present + session.totals.away
   const active = studyTime(session)
@@ -29,9 +31,12 @@ export default function SessionDetails({ session, onClose }: { session: StudySes
     <h2 id="detail-title">{session.task}</h2>
     <p className="muted">{dateLabel(session.started_at)} · {session.status === 'interrupted' ? 'Interrupted' : 'Completed'}</p>
     {session.status === 'interrupted' && <p className="notice">This session ended at its last saved checkpoint when the app stopped.</p>}
+    <StudyPatternReport key={session.id} session={session} />
+    <h3>Session timing & presence</h3>
     <div className="detail-metrics">{metrics.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
     <Timeline session={session} />
     <GazeReport session={session} />
+    <SessionDiagnostics sessionId={session.id} />
     <div className="conclusion"><span className="eyebrow">YOUR SESSION, SUMMED UP</span><p>{observed ? `${duration(session.totals.present)} with a face detected and ${duration(session.totals.away)} estimated away.` : 'No presence observations were available for this session.'}</p><span>{coverage(observed, active)} observation coverage: at-desk and away time divided by study time, excluding breaks. Unknown includes camera-off time and unreliable observations. Presence is not a measure of focus.</span></div>
   </dialog>
 }

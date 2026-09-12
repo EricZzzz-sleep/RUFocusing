@@ -27,12 +27,16 @@ The backend normally uses port **18765**. The launcher checks both services befo
 
 ## Use
 
-1. Enter a task and select a study mode.
+1. Open the **Record** tab, enter a task, and select a study mode. **Analysis** opens by default and contains saved metrics, the daily chart, and session history.
 2. Optionally check **Use webcam observations**. A small live preview opens so you can adjust the camera framing before starting. On macOS, allow camera access for Python/the launching terminal in **System Settings → Privacy & Security → Camera**, then select **Retry camera** if needed.
 3. Start the session. In **Observations**, toggle **Webcam observations** at any time. Turning it off releases the camera and marks subsequent study time unknown while the timer continues. Turning it on opens the preview. Use **Show camera preview** to reopen it while tracking. **Mirror preview** changes only the display; detection uses the original image.
 4. Use **Take a break** / **Resume session** to pause and resume tracking. The camera stays off during breaks; changing its setting then determines whether it restarts on resume.
-5. **End & save session** opens the report with study/break time, the presence breakdown, longest at-desk period, observation coverage, and timeline. Select a history entry to reopen it.
-6. Choose **Last 7 days**, **Last 30 days**, or **All time** to explore saved sessions. Search tasks and filter history by mode or status. These history filters do not change the overview or chart.
+5. **End & save session** switches to Analysis and opens the report with study/break time, the presence breakdown, longest at-desk period, observation coverage, and timeline. Select a history entry to reopen it.
+6. In **Analysis**, choose **Last 7 days**, **Last 30 days**, or **All time** to explore saved sessions. Search tasks and filter history by mode or status. These history filters do not change the overview or chart.
+
+Switch between **Analysis** (`#analysis`) and **Record** (`#record`) using the navigation tabs. Browser Back/Forward and direct links work; task inputs and analysis filters survive tab switches. A running session continues on Analysis, with a **Return to session** link. Leaving Record hides its preview; reopen it explicitly after returning. Leaving pre-session setup releases the camera and clears setup calibration. Leaving unfinished calibration cancels it.
+
+Drag the dotted handle in the camera preview header with a mouse, touch, or pen to reposition it. When the handle has keyboard focus, arrow keys move it 10 pixels, Shift+arrow moves it 40 pixels, and Home restores the bottom-right position. The preview stays within the visible screen and remembers its position across reopening and navigation until the page reloads. Close, Retry, Mirror, and preview scrolling remain independent of dragging.
 
 Closing a preview before a session stops the camera. An abandoned setup preview expires after eight seconds without frame requests. Closing the preview during a session keeps observation tracking on; breaks and session end stop it. No video footage is saved.
 
@@ -42,19 +46,25 @@ The timer continues if the browser tab closes; stop the session in the page or s
 
 ## Experimental gaze tracking
 
-With webcam observations enabled, select **Calibrate gaze** in the **Screen gaze** panel. Follow nine fullscreen targets and four separate accuracy checks. A point appears only after validation passes and while fresh, usable eye observations are available. New sessions require calibration; normal breaks and camera toggles retain it when geometry stays valid. Saved reports include separate gaze coverage and screen-region durations.
+On **Record**, with webcam observations enabled, select **Calibrate gaze** in the **Screen gaze** panel. Follow nine fullscreen targets and four separate accuracy checks. A point appears only after validation passes and while fresh, usable eye observations are available. New sessions require calibration; normal breaks and camera toggles retain it when geometry stays valid. Saved reports include separate gaze coverage and screen-region durations.
+
+**Check gaze accuracy** on Record runs nine independent targets against your accepted calibration. **Start reliability trial** adds initial, 10-minute, and 25-minute checks during study. Review errors, missing observations, coverage, and JSON downloads in recent diagnostics or the saved session report. Coverage is measured without a pass/fail threshold. See the [reliability workflow and pending physical acceptance record](docs/gaze-reliability.md).
 
 Gaze tracking is experimental and does not measure concentration. Physical accuracy has not yet been established. See [setup, model limits, APIs, and the physical validation checklist](docs/gaze-tracking.md).
 
-This update upgrades local SQLite storage to schema version 2. Restart any older running backend before using it; `make run` will not reuse an older API version. Existing history is preserved, and sessions without gaze observations are labeled accordingly.
+This update upgrades local SQLite storage to schema version 4. Restart any older running backend before using it; `make run` will not reuse an older API version. Existing history is preserved, and sessions without gaze observations are labeled accordingly.
 
 ## Reading your analysis
 
-The dashboard defaults to the last seven local calendar days, including today. Date ranges apply to the overview, daily chart, and history. Completed and interrupted sessions are included; active sessions enter the analysis after saving. Sessions crossing midnight are attributed entirely to their local start date. Days without saved sessions show zero.
+The dashboard defaults to the last seven local calendar days, including today. Date ranges apply to the overview, daily chart, Study patterns, and history. Completed and interrupted sessions are included; active sessions enter the analysis after saving. Sessions crossing midnight are attributed entirely to their local start date. Days without saved sessions show zero.
 
 **Study time** is total session time minus explicit breaks. **Observation coverage** is `(at-desk time + estimated away time) / study time`, shown as N/A when there is no study time. Aggregate coverage is weighted by duration, not the average of individual percentages. A timer-only session has unknown study time and 0% coverage. The final camera setting does not describe the whole session; its timeline does.
 
 The daily stacked chart shows at-desk, away, and unknown study durations with a zero baseline. Open **View daily data table** for exact values, session counts, breaks, and coverage. Longer periods scroll horizontally. Unknown includes camera-off time, short absences, multiple faces, failures, and unreliable observations. Presence does not measure cognitive focus.
+
+Open a saved session for **Study patterns & reflection**. Observed sustained at-desk periods (at least ten minutes), possible interruptions, and coverage stay separate from optional concentration/distraction ratings and **Self-reported flow**. Add, edit, or clear answers with **Save reflection**. Optional Focused / Distracted / Flow timeline tags use elapsed `HH:MM:SS` inputs and a preview; add them to the list, then **Save timeline tags**. Tags may cover unknown camera time but cannot overlap each other, breaks, or known diagnostics. Failures preserve entries for retry without undoing the saved session.
+
+The new behavioral metrics exclude calibration and accuracy-check windows; existing daily study-time and presence totals remain unchanged. Ten minutes is a product heuristic, not proof of deep concentration. Older sessions with uncertain diagnostic boundaries show why these metrics are unavailable. See [definitions, API, migration, and limitations](docs/study-patterns.md).
 
 ## Camera setup and recovery
 
@@ -76,6 +86,8 @@ If the camera cannot open, check **System Settings → Privacy & Security → Ca
 `make test` runs synthetic camera/session tests using temporary SQLite databases, frontend component tests with mocked API responses, TypeScript checks, and a production build. These tests never activate the webcam.
 
 Automated coverage includes live camera setting changes, break/resume settings, idempotent toggles, weighted coverage, local date boundaries, history filtering, save/start failure recovery, reconnection, camera startup failure/timeout, native process exit, stale frames, repeated retry during startup, recovery without losing session time, preview close during a pending request, keyboard close/focus restoration, and the existing presence/timeline calculations. A regression test uses actual spawned workers with synthetic frames to verify that a worker dying while holding its frame lock and repeated process termination cannot block retry or the timer.
+
+Navigation and preview tests also cover page defaults/direct links, retained filters and drafts, pending-camera navigation races, calibration cancellation on navigation, bounded pointer/keyboard dragging, and position restoration.
 
 Frontend browser validation for the dashboard uses a temporary SQLite database and synthetic camera observations. It covers date ranges, history filtering, recording, camera toggles, break/resume, refresh recovery, save failure/retry, report keyboard focus, and layouts from 320 to 1440 pixels. No physical camera is activated by these checks.
 

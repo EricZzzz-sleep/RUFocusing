@@ -113,6 +113,8 @@ class GazeTracker:
         self.last_timestamp = -math.inf
         self.last_client_seen = None
         self.quality = 'unavailable'
+        self.rejections = {}
+        self.last_quality_timestamp = -math.inf
         self.geometry_since = None
         self.camera_config = None
         self.latest = GazeObservation(0, reason=reason)
@@ -173,6 +175,9 @@ class GazeTracker:
         if not usable or not 0 <= now - observation.timestamp <= STALE_AFTER:
             reason = 'stale' if observation.available and now - observation.timestamp > STALE_AFTER else (
                 'multiple_faces' if observation.face_count and observation.face_count > 1 else 'no_face' if observation.face_count == 0 else observation.gaze_quality)
+            if self.status in ('collecting', 'validating') and observation.timestamp > self.last_quality_timestamp:
+                self.rejections[reason] = self.rejections.get(reason, 0) + 1
+                self.last_quality_timestamp = observation.timestamp
             self.clear_point(now, reason)
             self.geometry_since = None
             return
@@ -268,5 +273,5 @@ class GazeTracker:
                     'display': self.display, 'validation': self.validation,
                     'target_index': self.target_index, 'target': TARGETS[self.target_index] if self.target_index is not None else None,
                     'target_count': len(TARGETS), 'targets': TARGETS, 'completed_targets': len(self.samples) if self.status in ('collecting', 'validating') else 13 if self.status == 'ready' else 0,
-                    'samples': len(self.target_samples), 'collecting': self.target_started is not None,
+                    'rejections': dict(self.rejections), 'samples': len(self.target_samples), 'collecting': self.target_started is not None,
                     'target_error': self.target_error}}

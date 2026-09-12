@@ -47,7 +47,7 @@ def make_handler(controller, frontend_port=5173):
                 self.respond(200, {
                     'ok': True,
                     'app': 'RUFocusing',
-                    'api_version': 2,
+                    'api_version': 4,
                     'project': hashlib.sha256(str(ROOT).encode()).hexdigest(),
                     'frontend_port': frontend_port,
                 })
@@ -67,6 +67,15 @@ def make_handler(controller, frontend_port=5173):
                         self.wfile.write(frame)
                     except (BrokenPipeError, ConnectionResetError):
                         pass
+            elif urlsplit(self.path).path == '/api/gaze/diagnostics/state':
+                token = parse_qs(urlsplit(self.path).query).get('check_id', [None])[0]
+                self.respond(200, controller.diagnostic_state(token))
+            elif urlsplit(self.path).path == '/api/gaze/diagnostics':
+                session_id = parse_qs(urlsplit(self.path).query).get('session_id', [None])[0]
+                self.respond(200, controller.diagnostic_records(session_id=session_id))
+            elif self.path.startswith('/api/gaze/diagnostics/'):
+                result = controller.diagnostic_records(identifier=self.path.rsplit('/', 1)[-1])
+                self.respond(200 if result else 404, result or {'error': 'Diagnostic not found.'})
             elif urlsplit(self.path).path == '/api/gaze/state':
                 token = parse_qs(urlsplit(self.path).query).get('calibration_id', [None])[0]
                 self.respond(200, controller.gaze_snapshot(token))
@@ -74,6 +83,14 @@ def make_handler(controller, frontend_port=5173):
                 identifier = self.path[len('/api/sessions/'):-len('/gaze')]
                 result = controller.gaze_details(identifier)
                 self.respond(200 if result is not None else 404, result if result is not None else {'error': 'Session not found.'})
+            elif self.path.startswith('/api/sessions/') and self.path.endswith('/analysis'):
+                try:
+                    result = controller.session_analysis(self.path[len('/api/sessions/'):-len('/analysis')])
+                    self.respond(200 if result is not None else 404, result if result is not None else {'error': 'Session not found.'})
+                except ValueError as error:
+                    self.respond(400, {'error': str(error)})
+                except Exception:
+                    self.respond(500, {'error': 'Study patterns could not be loaded. Retry the report.'})
             elif self.path == '/api/state':
                 self.respond(200, controller.snapshot())
             else:
@@ -93,6 +110,14 @@ def make_handler(controller, frontend_port=5173):
                 if not isinstance(data, dict):
                     raise ValueError('Expected a JSON object.')
                 finished = None
+                if self.path.startswith('/api/sessions/') and self.path.rsplit('/', 1)[-1] in ('reflection', 'annotations'):
+                    identifier, action = self.path[len('/api/sessions/'):].rsplit('/', 1)
+                    self.respond(200, controller.session_analysis(identifier, action, data))
+                    return
+                if self.path in {f'/api/gaze/{group}/{action}' for group, actions in (('checks', ('start', 'target', 'complete', 'cancel')), ('trials', ('start', 'stop', 'reminder'))) for action in actions}:
+                    group, action = self.path.rsplit('/', 2)[-2:]
+                    self.respond(200, controller.diagnostic_action(group, action, data))
+                    return
                 if self.path in {f'/api/gaze/calibration/{action}' for action in ('start', 'target', 'complete', 'reset', 'display')}:
                     self.respond(200, controller.calibration_action(self.path.rsplit('/', 1)[-1], data))
                     return
@@ -117,7 +142,8 @@ def make_handler(controller, frontend_port=5173):
             except (ValueError, TypeError) as error:
                 self.respond(400, {'error': str(error)})
             except Exception:
-                self.respond(500, {'error': 'The session could not be saved. Check the terminal and local database access.'})
+                editing_report = self.path.rsplit('/', 1)[-1] in ('reflection', 'annotations')
+                self.respond(500, {'error': 'Your report changes could not be saved. The study session is already saved. Retry after checking local database access.' if editing_report else 'The session could not be saved. Check the terminal and local database access.'})
                 import traceback
                 traceback.print_exc()
 

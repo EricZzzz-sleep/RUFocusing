@@ -5,6 +5,7 @@ import { gazeRequest } from '../src/gaze-api'
 import type { GazeState } from '../src/types'
 import GazePanel from './GazePanel'
 
+vi.mock('./DiagnosticsPanel', () => ({ default: () => null }))
 vi.mock('../src/gaze-api', () => ({ gazeRequest: vi.fn() }))
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const initial = (): GazeState => ({ experimental: true, quality: 'usable',
@@ -32,8 +33,26 @@ describe('Gaze calibration and live feedback', () => {
     Reflect.deleteProperty(document.documentElement, 'requestFullscreen')
     Reflect.deleteProperty(document, 'exitFullscreen'); Reflect.deleteProperty(document, 'fullscreenElement')
   })
-  async function render(enabled = true) { await act(async () => root.render(<GazePanel enabled={enabled} busy={false} />)) }
+  async function render(enabled = true, visible = true) { await act(async () => root.render(<GazePanel enabled={enabled} visible={visible} busy={false} />)) }
   async function click(text: string) { await act(async () => [...host.querySelectorAll('button')].find(button => button.textContent?.includes(text))!.click()) }
+
+
+  it('cancels calibration when Record is hidden, without stealing page focus', async () => {
+    let current = initial()
+    vi.mocked(gazeRequest).mockImplementation(async action => {
+      if (action === 'start') current = { ...current, calibration: { ...current.calibration, id: 'hidden-calibration', status: 'collecting', collecting: true } }
+      if (action === 'reset') current = initial()
+      return current
+    })
+    await render()
+    await click('Calibrate gaze')
+    const heading = document.createElement('h1'); heading.tabIndex = -1; document.body.append(heading); heading.focus()
+    await render(true, false)
+    expect(host.querySelector('dialog')).toBeNull()
+    expect(vi.mocked(gazeRequest).mock.calls).toContainEqual(['reset', { calibration_id: 'hidden-calibration' }])
+    expect(document.activeElement).toBe(heading)
+    heading.remove()
+  })
 
   it('only shows a fresh valid calibrated coordinate and clears it during tracking loss', async () => {
     vi.mocked(gazeRequest).mockResolvedValue(ready())
@@ -103,6 +122,12 @@ describe('Gaze calibration and live feedback', () => {
     await click('Calibrate gaze')
     expect(host.textContent).toContain('Target request failed')
     expect([...host.querySelectorAll('button')].some(button => button.textContent === 'Retry target')).toBe(true)
+    const [cancelButton, retryButton] = host.querySelectorAll<HTMLButtonElement>('dialog button')
+    retryButton.focus()
+    retryButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))
+    expect(document.activeElement).toBe(cancelButton)
+    cancelButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }))
+    expect(document.activeElement).toBe(retryButton)
     await click('Cancel calibration')
     expect(host.querySelector('.calibration-screen')).toBeNull()
   })

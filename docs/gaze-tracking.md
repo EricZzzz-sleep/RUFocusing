@@ -4,13 +4,13 @@ RUFocusing estimates a gaze point on **one calibrated display**. It detects face
 
 ## Use
 
-1. Restart an older running app with Ctrl+C in its launching terminal, then `make run`. The launcher checks API version 2 and will not reuse an older backend. The SQLite migration preserves existing sessions; older app versions cannot reopen the upgraded database.
-2. Enable webcam observations and check camera framing. In **Screen gaze**, select **Calibrate gaze**. Calibration uses fullscreen and requires a desktop browser that supports it.
+1. Restart an older running app with Ctrl+C in its launching terminal, then `make run`. The launcher checks API version 3 and will not reuse an older backend. The SQLite migration preserves existing sessions; older app versions cannot reopen the upgraded database.
+2. Open the **Record** tab, enable webcam observations, and check camera framing. In **Screen gaze**, select **Calibrate gaze**. Calibration uses fullscreen and requires a desktop browser that supports it.
 3. Look at each target while keeping your head comfortably still and both eyes visible. There are nine training targets and four separate accuracy checks. Each target discards the first 500 ms and requires at least ten unique usable frames spanning two seconds. A target times out after ten seconds and can be retried.
 4. After successful validation, the small display map shows the estimated point. It is normalized to the calibrated display, not to the study webpage's current window. Gaze coverage and region durations appear in saved reports.
 5. Recalibrate when asked, or manually after moving to another monitor, moving the camera, changing zoom/display configuration, or changing seating position. This version supports one fixed display; matching-resolution monitors cannot always be distinguished by browser geometry alone.
 
-Escape, Cancel calibration, leaving fullscreen, or hiding the calibration tab cancels collection. Backend collection expires after three seconds without the owning calibration's heartbeat. Ordinary state polling cannot keep abandoned collection alive.
+Escape, Cancel calibration, leaving fullscreen, switching to Analysis, or hiding the calibration browser tab cancels collection. Backend collection expires after three seconds without the owning calibration's heartbeat. Ordinary state polling cannot keep abandoned collection alive.
 
 Calibration can transfer from an open setup preview into the immediately following session. Closing or abandoning setup clears it. New sessions require new calibration. Routine breaks and observation toggles retain validated calibration; camera failure/retry, camera index/resolution changes, display geometry changes, and sustained seating changes invalidate it. Camera-off time and breaks never show a point.
 
@@ -40,7 +40,7 @@ Valid points use a 250 ms time-constant exponential smoother. Observations older
 
 All POSTs retain JSON, `X-RUFocusing: 1`, loopback/origin checks, and the 4 KiB request limit. Camera/session commands share the controller lock with calibration commands.
 
-Schema version 2 adds separate `calibrations`, `gaze_observations`, and `gaze_intervals` tables through a transactional migration. Accepted model parameters/version/display geometry/error statistics and compact point observations are stored locally. Raw training samples are discarded after fitting/validation. Full meshes, images, and video are never saved. Old sessions have no gaze summary; new timer-only sessions have unknown gaze time. Gaze coverage is valid gaze duration divided by study duration, excluding breaks, with N/A for zero study duration.
+Schema version 2 introduced separate `calibrations`, `gaze_observations`, and `gaze_intervals` tables through a transactional migration. Accepted model parameters/version/display geometry/error statistics and compact point observations are stored locally. Raw training samples are discarded after fitting/validation. Full meshes, images, and video are never saved. Old sessions have no gaze summary; new timer-only sessions have unknown gaze time. Gaze coverage is valid gaze duration divided by study duration, excluding breaks, with N/A for zero study duration.
 
 ## Validation record and physical acceptance
 
@@ -49,6 +49,8 @@ Automated tests cover geometry/aspect ratio, rejected frames, target timing/dupl
 The real pinned MediaPipe model has also been exercised on a blank frame (zero faces) and the public `business-person.png` sample from [Google's example notebook](https://github.com/google-ai-edge/mediapipe-samples/tree/main/examples/face_landmarker/python) (one face, finite pose, usable compact eye features). This checks model integration, not physical gaze accuracy or consented user validation.
 
 Browser integration uses a temporary database and synthetic features at a real five-Hz cadence to exercise all thirteen targets, report rendering, breaks, toggles, reload recovery, and interval accounting. Synthetic error values must not be cited as webcam accuracy.
+
+Desktop and mobile layouts are checked for overflow at 320, 375, 768, and 1440 pixels. Automated accessibility checks cover the dashboard, fullscreen calibration, and saved report; keyboard checks cover calibration focus containment, Escape cancellation, and focus restoration.
 
 **Physical accuracy remains unverified; the feature stays experimental.** A person must perform the following walkthrough before making a readiness claim:
 
@@ -63,3 +65,5 @@ Browser integration uses a temporary database and synthetic features at a real f
 | Camera retry/display changes | Recalibration required; earlier intervals preserved |
 
 Use only participating users who agree to the test. Do not treat a single passing calibration as proof of performance across lighting, eyewear, or users. Record failures as well as passes and keep estimates suppressed when validation fails.
+
+The schema now upgrades to version 3 for independent accuracy checks, trial durations, and failed/cancelled calibration attempts. See [gaze reliability diagnostics and physical acceptance](gaze-reliability.md).

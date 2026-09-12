@@ -21,7 +21,7 @@ def already_running(port, api_port):
     expected = {
         'ok': True,
         'app': 'RUFocusing',
-        'api_version': 2,
+        'api_version': 4,
         'project': hashlib.sha256(str(ROOT).encode()).hexdigest(),
         'frontend_port': port,
     }
