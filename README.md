@@ -1,6 +1,13 @@
 # RUFocusing
 
-A local study-session app. Record study sessions, control webcam observations, and review saved timelines and daily study trends. Optional local face detection supplies presence estimates and approximate head pose; session data stays in SQLite on this device.
+A local study-session app built with React, TypeScript, and Python. Record sessions, control webcam observations, explore study patterns, and add personal reflections. Session records stay in SQLite on your device; video is never saved.
+
+- **Analysis:** saved metrics, daily charts, date filters, searchable history, and detailed reports.
+- **Record:** task and mode setup, timer, breaks, webcam controls, a draggable preview, and gaze calibration.
+- **Study patterns:** sustained at-desk periods and possible interruptions from recorded presence, with separate self-reported concentration, distraction, flow, and timeline tags.
+- **Experimental screen gaze:** calibrated gaze estimates, screen-region summaries, accuracy checks, and guided reliability trials.
+
+Camera observations describe presence and estimated gaze location. They do not establish concentration, distraction, or flow; those experiences are reported by you.
 
 ## Run
 
@@ -17,7 +24,7 @@ The first run installs local Python/frontend dependencies and downloads the pinn
 **Ctrl+C** in the terminal that originally started the servers stops both services and releases the camera. Alternative options:
 
 ```sh
-make run OPEN=0                       # Start without opening a browser
+make run OPEN=0                      # Start without opening a browser
 make run PORT=5174 API_PORT=18766     # Use different ports
 make test                           # Python + frontend tests, type check/build
 make build                          # Frontend production build
@@ -31,8 +38,8 @@ The backend normally uses port **18765**. The launcher checks both services befo
 2. Optionally check **Use webcam observations**. A small live preview opens so you can adjust the camera framing before starting. On macOS, allow camera access for Python/the launching terminal in **System Settings → Privacy & Security → Camera**, then select **Retry camera** if needed.
 3. Start the session. In **Observations**, toggle **Webcam observations** at any time. Turning it off releases the camera and marks subsequent study time unknown while the timer continues. Turning it on opens the preview. Use **Show camera preview** to reopen it while tracking. **Mirror preview** changes only the display; detection uses the original image.
 4. Use **Take a break** / **Resume session** to pause and resume tracking. The camera stays off during breaks; changing its setting then determines whether it restarts on resume.
-5. **End & save session** switches to Analysis and opens the report with study/break time, the presence breakdown, longest at-desk period, observation coverage, and timeline. Select a history entry to reopen it.
-6. In **Analysis**, choose **Last 7 days**, **Last 30 days**, or **All time** to explore saved sessions. Search tasks and filter history by mode or status. These history filters do not change the overview or chart.
+5. **End & save session** switches to Analysis and opens the report with study patterns, presence evidence, session timing, and any recorded gaze data. Optionally save a reflection or add personal timeline tags. Select a history entry to reopen and edit them later.
+6. In **Analysis**, choose **Last 7 days**, **Last 30 days**, or **All time** to explore saved sessions. Search tasks and filter history by mode or status. These history filters affect only the history list; the overview, daily chart, and Study patterns use the date range.
 
 Switch between **Analysis** (`#analysis`) and **Record** (`#record`) using the navigation tabs. Browser Back/Forward and direct links work; task inputs and analysis filters survive tab switches. A running session continues on Analysis, with a **Return to session** link. Leaving Record hides its preview; reopen it explicitly after returning. Leaving pre-session setup releases the camera and clears setup calibration. Leaving unfinished calibration cancels it.
 
@@ -46,13 +53,15 @@ The timer continues if the browser tab closes; stop the session in the page or s
 
 ## Experimental gaze tracking
 
-On **Record**, with webcam observations enabled, select **Calibrate gaze** in the **Screen gaze** panel. Follow nine fullscreen targets and four separate accuracy checks. A point appears only after validation passes and while fresh, usable eye observations are available. New sessions require calibration; normal breaks and camera toggles retain it when geometry stays valid. Saved reports include separate gaze coverage and screen-region durations.
+On **Record**, with webcam observations enabled, select **Calibrate gaze** in the **Screen gaze** panel. Follow nine training targets and four separate validation targets in fullscreen. Calibration requires median error ≤10% and p90 error ≤20% of the display diagonal. A point appears only after validation passes and while fresh, usable eye observations are available.
 
-**Check gaze accuracy** on Record runs nine independent targets against your accepted calibration. **Start reliability trial** adds initial, 10-minute, and 25-minute checks during study. Review errors, missing observations, coverage, and JSON downloads in recent diagnostics or the saved session report. Coverage is measured without a pass/fail threshold. See the [reliability workflow and pending physical acceptance record](docs/gaze-reliability.md).
+Each new session requires calibration; accepted setup calibration can transfer into the immediately following session. Normal breaks and camera toggles retain it when the camera/display configuration and seating geometry remain valid. Camera failure or retry, display changes, and sustained seating changes require recalibration. Saved reports include separate gaze coverage and screen-region durations.
+
+**Check gaze accuracy** runs nine independent targets through the accepted estimator without updating the calibration model. A complete check passes or fails the same error gates; missing evidence produces **Incomplete**. Failed checks suppress estimates until recalibration. Checks require an already enabled camera and never activate it themselves.
+
+**Start reliability trial** guides an active, calibrated session through an initial accuracy check and follow-up reminders around 10 and 25 minutes of trial study time. Checks require your action; reminders never force a break or end a session. Trial time excludes breaks and diagnostic windows. Review errors, missing observations, coverage, and JSON downloads in recent diagnostics or the saved session report. Coverage is measured as a baseline without a pass/fail threshold. See the [reliability workflow and pending physical acceptance record](docs/gaze-reliability.md).
 
 Gaze tracking is experimental and does not measure concentration. Physical accuracy has not yet been established. See [setup, model limits, APIs, and the physical validation checklist](docs/gaze-tracking.md).
-
-This update upgrades local SQLite storage to schema version 4. Restart any older running backend before using it; `make run` will not reuse an older API version. Existing history is preserved, and sessions without gaze observations are labeled accordingly.
 
 ## Reading your analysis
 
@@ -62,9 +71,33 @@ The dashboard defaults to the last seven local calendar days, including today. D
 
 The daily stacked chart shows at-desk, away, and unknown study durations with a zero baseline. Open **View daily data table** for exact values, session counts, breaks, and coverage. Longer periods scroll horizontally. Unknown includes camera-off time, short absences, multiple faces, failures, and unreliable observations. Presence does not measure cognitive focus.
 
-Open a saved session for **Study patterns & reflection**. Observed sustained at-desk periods (at least ten minutes), possible interruptions, and coverage stay separate from optional concentration/distraction ratings and **Self-reported flow**. Add, edit, or clear answers with **Save reflection**. Optional Focused / Distracted / Flow timeline tags use elapsed `HH:MM:SS` inputs and a preview; add them to the list, then **Save timeline tags**. Tags may cover unknown camera time but cannot overlap each other, breaks, or known diagnostics. Failures preserve entries for retry without undoing the saved session.
+### Study patterns and reflection
 
-The new behavioral metrics exclude calibration and accuracy-check windows; existing daily study-time and presence totals remain unchanged. Ten minutes is a product heuristic, not proof of deep concentration. Older sessions with uncertain diagnostic boundaries show why these metrics are unavailable. See [definitions, API, migration, and limitations](docs/study-patterns.md).
+Open a saved session for **Study patterns & reflection**. Reports keep two evidence layers separate:
+
+| Indicator | Evidence and meaning |
+| --- | --- |
+| **Sustained at-desk periods** | Continuous recorded presence lasting at least ten minutes, shown as count, total duration, and longest qualifying period. Away, unknown, breaks, calibration, and accuracy checks split continuity. |
+| **Possible interruptions** | Recorded away episodes outside breaks and diagnostics, with their timing and duration. Their cause is unknown; initial unknown absence time is not backfilled. |
+| **Behavioral observation coverage** | Recorded at-desk plus away time divided by study time outside breaks and diagnostics. Unknown time stays in the denominator; zero eligible time is N/A. |
+| **Personal ratings** | Optional concentration and distraction-frequency answers from 1–5, plus **Self-reported flow** as Yes / No / Unsure. |
+| **Personal timeline tags** | Times you label **Focused**, **Distracted**, or **Flow**, shown separately from recorded observations. Individual Focused or Flow tags lasting at least ten minutes count as **Self-reported sustained focus**. |
+
+“Deep study” means sustained concentration here. Ten minutes is a versioned product default, not a scientifically validated concentration threshold. At-desk periods may support sustained study but do not prove deep concentration. Gaze changes, looking down, and reading paper never automatically count as distraction.
+
+To add a reflection, choose any answers and select **Save reflection**. Each answer can be skipped, edited, or cleared later. Flow means feeling absorbed and working smoothly; this short product question is not a validated psychological scale. Whole-session ratings are never assigned to individual minutes.
+
+To tag part of a session:
+
+1. Choose **Focused**, **Distracted**, or **Flow**, then enter elapsed start/end times as `HH:MM:SS`.
+2. Check the visual preview and select **Add tag to list**. Use **Edit** or **Delete** to change existing entries.
+3. Select **Save timeline tags** to persist the list. Up to 30 tags are supported per session.
+
+Tags must stay within saved study time and cannot overlap each other, explicit breaks, or known diagnostic windows. They may cover unknown camera time; the observation layer stays unknown. Reflection and tag saves are separate from session saving. Failures keep your entries for retry without undoing the saved session. Closing or refreshing a report discards unsaved form/list changes.
+
+The Analysis **Study patterns** section aggregates behavioral totals, tagged durations, average submitted ratings with response counts, and reported-flow session counts for the selected date range. Missing ratings remain N/A, never zero. There is no overall focus score.
+
+Only these behavioral metrics exclude calibration and accuracy-check windows; existing daily study-time and presence totals retain their original definitions. Older sessions with uncertain diagnostic boundaries show why behavioral metrics are unavailable, while reflection remains available. See [definitions, API, migration, and limitations](docs/study-patterns.md).
 
 ## Camera setup and recovery
 
@@ -83,38 +116,45 @@ If the camera cannot open, check **System Settings → Privacy & Security → Ca
 
 ## Validation
 
-`make test` runs synthetic camera/session tests using temporary SQLite databases, frontend component tests with mocked API responses, TypeScript checks, and a production build. These tests never activate the webcam.
+Last verified for the study-pattern release: **88 Python tests and 51 frontend tests passed**, along with TypeScript checks and the production build through `make test`. Tests use synthetic observations and temporary databases; they do not activate the webcam.
 
-Automated coverage includes live camera setting changes, break/resume settings, idempotent toggles, weighted coverage, local date boundaries, history filtering, save/start failure recovery, reconnection, camera startup failure/timeout, native process exit, stale frames, repeated retry during startup, recovery without losing session time, preview close during a pending request, keyboard close/focus restoration, and the existing presence/timeline calculations. A regression test uses actual spawned workers with synthetic frames to verify that a worker dying while holding its frame lock and repeated process termination cannot block retry or the timer.
+Coverage includes:
 
-Navigation and preview tests also cover page defaults/direct links, retained filters and drafts, pending-camera navigation races, calibration cancellation on navigation, bounded pointer/keyboard dragging, and position restoration.
+- Session timing, presence rules, camera toggles, breaks, startup/retry failures, stale frames, worker crashes, and recovery without losing session identity or timeline coverage.
+- Calibration, accuracy-check sampling, diagnostic lifecycle, reliability-trial timing, and persistence.
+- Hash navigation, retained inputs/filters, reconnection, preview/calibration races, pointer and keyboard dragging, and focus restoration.
+- Sustained-period boundaries, diagnostic exclusions, missing evidence, reflection/tag validation, retry-safe saves, database migration/rollback, and detailed-report/aggregate parity.
 
-Frontend browser validation for the dashboard uses a temporary SQLite database and synthetic camera observations. It covers date ranges, history filtering, recording, camera toggles, break/resume, refresh recovery, save failure/retry, report keyboard focus, and layouts from 320 to 1440 pixels. No physical camera is activated by these checks.
+Separate Chrome integration checks against a real local API and a temporary database passed report save/retry/reopen flows, tag preservation over unknown observations, keyboard navigation, and layouts at 320, 375, 768, and 1440 pixels. Desktop/mobile Analysis and report screens passed automated axe WCAG 2 A/AA and 2.1 AA checks and visual inspection. These browser checks are separate from `make test`; see the [recorded verification](docs/study-patterns.md#verification-recorded-for-this-implementation).
 
-Real-camera verification is recorded separately from those tests. The new live-toggle walkthrough with physical hardware remains a manual check: start timer-only, enable observations, verify preview, hide/reopen preview, disable observations and confirm camera release, enable during a break and verify it starts only on resume, then save. The default webcam on the development Apple Silicon Mac has shown **Starting → Ready**, live JPEG preview, one-face detection, and head-angle readings with this implementation. The physical looking-down and 15-second leave/return walkthrough requires a person at the camera; automated observations do not substitute for that check.
+Physical webcam validation remains separate. Camera startup, live preview, face detection, and head-angle readings have been exercised on the development Mac, but these do not establish screen-gaze accuracy. The required trials across multiple days and changes in lighting, glasses, seating, and head movement remain documented in the [gaze reliability checklist](docs/gaze-reliability.md).
 
 ## Local data
 
 SQLite records are stored in `.data/sessions.sqlite3`. The face model is cached in `core/models/face_landmarker.task`. Both are ignored by Git. Raw frames stay in memory. While the preview is open, the latest JPEG is delivered over loopback to the local browser; no video is saved or uploaded to an external service.
+
+Saved data includes session/presence timelines, compact gaze records, calibration parameters, diagnostics, optional reflection answers, and personal timeline tags. Full face meshes and individual identities are not stored. Diagnostic JSON downloads contain numerical results and metadata, without frames or model coefficients.
+
+The current backend requires **API version 4** and upgrades earlier SQLite databases transactionally to **schema version 4**, preserving existing sessions and observations. Stop an older running backend before starting the updated app; the launcher will not reuse an incompatible API. Older sessions without gaze observations show **No gaze data recorded**. Sessions with unreliable historical diagnostic boundaries keep their original presence reports and personal reflections, while the new behavioral metrics explain their unavailability.
 
 ## Structure
 
 ```text
 apps/
 ├── desktop/        # src/, components/, pages/, src-tauri/; local React UI and launcher
-└── vision/         # camera.py, face.py, pose.py, worker.py; other detector placeholders
+└── vision/         # Camera worker, face/eye features, gaze tracker, diagnostics, local API
 core/
-├── session.py      # Timer, presence rules, and session lifecycle
-├── features/       # Image-free observation type; future feature windows
+├── session.py      # Timer and serialized session/camera/calibration/diagnostic lifecycle
+├── features/       # Image-free numerical observation contracts
 ├── behavior/       # Away rule; future classifiers
-├── analytics/      # Timeline totals and longest observed presence block
+├── analytics/      # Presence totals and versioned study-pattern analysis
 └── models/         # Downloaded model cache
-database/           # SQLite schema, store, and future migrations
+database/           # SQLite store and transactional migrations through v4
 extensions/         # Chrome and VS Code placeholders
 tests/              # Synthetic observations and temporary databases
-docs/               # Architecture and privacy
+docs/               # Architecture, privacy, gaze reliability, and study-pattern definitions
 ```
 
-Tauri packaging, body/phone detection, computer activity tracking, and personal focus analytics remain future work. Screen gaze is an experimental calibrated feature. The current desktop frontend runs locally in your browser.
+The current desktop frontend runs locally in your browser. Tauri packaging, body/phone detection, and computer activity tracking remain outside this release. Automatic mental-state detection, face identity recognition, video recording, and cloud hosting are not implemented.
 
 See [architecture](docs/architecture.md), [privacy](docs/privacy.md), and the [Apache 2.0 license](LICENSE).
