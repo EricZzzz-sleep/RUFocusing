@@ -1,0 +1,427 @@
+[
+  {
+    "session": {
+      "id": "empty",
+      "elapsed": 0,
+      "timeline": []
+    },
+    "study_periods": {
+      "available": false,
+      "intervals": [],
+      "totals": {
+        "deep": 0.0,
+        "normal": 0.0,
+        "distracted": 0.0
+      }
+    },
+    "summary": {
+      "version": "study-patterns-v1",
+      "availability": {
+        "available": false,
+        "reasons": [
+          "no_eligible_study_time"
+        ]
+      },
+      "sustained_count": null,
+      "sustained_seconds": null,
+      "longest_sustained": null,
+      "interruption_count": null,
+      "interruption_seconds": null,
+      "eligible_seconds": 0,
+      "observed_seconds": 0,
+      "observation_coverage": null,
+      "tagged_seconds": {
+        "focused": 0,
+        "distracted": 0,
+        "flow": 0
+      },
+      "self_reported_sustained_seconds": 0,
+      "reflection": {
+        "concentration": null,
+        "distraction": null,
+        "flow": null
+      }
+    }
+  },
+  {
+    "session": {
+      "id": "camera_off",
+      "elapsed": 120,
+      "timeline": [
+        {
+          "start": 0,
+          "end": 120,
+          "state": "unknown"
+        }
+      ]
+    },
+    "study_periods": {
+      "available": false,
+      "intervals": [
+        {
+          "start": 0,
+          "end": 120,
+          "state": "unknown"
+        }
+      ],
+      "totals": {
+        "deep": 0.0,
+        "normal": 0.0,
+        "distracted": 0.0
+      }
+    },
+    "summary": {
+      "version": "study-patterns-v1",
+      "availability": {
+        "available": false,
+        "reasons": [
+          "no_presence_observations"
+        ]
+      },
+      "sustained_count": null,
+      "sustained_seconds": null,
+      "longest_sustained": null,
+      "interruption_count": null,
+      "interruption_seconds": null,
+      "eligible_seconds": 120,
+      "observed_seconds": 0,
+      "observation_coverage": 0.0,
+      "tagged_seconds": {
+        "focused": 0,
+        "distracted": 0,
+        "flow": 0
+      },
+      "self_reported_sustained_seconds": 0,
+      "reflection": {
+        "concentration": null,
+        "distraction": null,
+        "flow": null
+      }
+    }
+  },
+  {
+    "session": {
+      "id": "threshold_before",
+      "elapsed": 599.99,
+      "timeline": [
+        {
+          "start": 0,
+          "end": 599.99,
+          "state": "present"
+        }
+      ]
+    },
+    "study_periods": {
+      "available": true,
+      "intervals": [
+        {
+          "start": 0,
+          "end": 599.99,
+          "state": "normal"
+        }
+      ],
+      "totals": {
+        "deep": 0.0,
+        "normal": 599.99,
+        "distracted": 0.0
+      }
+    },
+    "summary": {
+      "version": "study-patterns-v1",
+      "availability": {
+        "available": true,
+        "reasons": []
+      },
+      "sustained_count": 0,
+      "sustained_seconds": 0,
+      "longest_sustained": 0,
+      "interruption_count": 0,
+      "interruption_seconds": 0,
+      "eligible_seconds": 599.99,
+      "observed_seconds": 599.99,
+      "observation_coverage": 1.0,
+      "tagged_seconds": {
+        "focused": 0,
+        "distracted": 0,
+        "flow": 0
+      },
+      "self_reported_sustained_seconds": 0,
+      "reflection": {
+        "concentration": null,
+        "distraction": null,
+        "flow": null
+      }
+    }
+  },
+  {
+    "session": {
+      "id": "threshold_at",
+      "elapsed": 600,
+      "timeline": [
+        {
+          "start": 0,
+          "end": 300,
+          "state": "present"
+        },
+        {
+          "start": 300,
+          "end": 600,
+          "state": "present"
+        }
+      ]
+    },
+    "study_periods": {
+      "available": true,
+      "intervals": [
+        {
+          "start": 0,
+          "end": 600,
+          "state": "deep"
+        }
+      ],
+      "totals": {
+        "deep": 600.0,
+        "normal": 0.0,
+        "distracted": 0.0
+      }
+    },
+    "summary": {
+      "version": "study-patterns-v1",
+      "availability": {
+        "available": true,
+        "reasons": []
+      },
+      "sustained_count": 1,
+      "sustained_seconds": 600,
+      "longest_sustained": 600,
+      "interruption_count": 0,
+      "interruption_seconds": 0,
+      "eligible_seconds": 600,
+      "observed_seconds": 600,
+      "observation_coverage": 1.0,
+      "tagged_seconds": {
+        "focused": 0,
+        "distracted": 0,
+        "flow": 0
+      },
+      "self_reported_sustained_seconds": 0,
+      "reflection": {
+        "concentration": null,
+        "distraction": null,
+        "flow": null
+      }
+    }
+  },
+  {
+    "session": {
+      "id": "gap",
+      "elapsed": 1200,
+      "timeline": [
+        {
+          "start": 0,
+          "end": 500,
+          "state": "present"
+        },
+        {
+          "start": 700,
+          "end": 1200,
+          "state": "present"
+        }
+      ]
+    },
+    "study_periods": {
+      "available": true,
+      "intervals": [
+        {
+          "start": 0,
+          "end": 500,
+          "state": "normal"
+        },
+        {
+          "start": 500,
+          "end": 700,
+          "state": "unknown"
+        },
+        {
+          "start": 700,
+          "end": 1200,
+          "state": "normal"
+        }
+      ],
+      "totals": {
+        "deep": 0.0,
+        "normal": 1000.0,
+        "distracted": 0.0
+      }
+    },
+    "summary": {
+      "version": "study-patterns-v1",
+      "availability": {
+        "available": true,
+        "reasons": []
+      },
+      "sustained_count": 0,
+      "sustained_seconds": 0,
+      "longest_sustained": 0,
+      "interruption_count": 0,
+      "interruption_seconds": 0,
+      "eligible_seconds": 1200,
+      "observed_seconds": 1000,
+      "observation_coverage": 0.8333333333333334,
+      "tagged_seconds": {
+        "focused": 0,
+        "distracted": 0,
+        "flow": 0
+      },
+      "self_reported_sustained_seconds": 0,
+      "reflection": {
+        "concentration": null,
+        "distraction": null,
+        "flow": null
+      }
+    }
+  },
+  {
+    "session": {
+      "id": "overlap",
+      "elapsed": 1200,
+      "timeline": [
+        {
+          "start": 0,
+          "end": 800,
+          "state": "present"
+        },
+        {
+          "start": 700,
+          "end": 1200,
+          "state": "away"
+        }
+      ]
+    },
+    "study_periods": {
+      "available": true,
+      "intervals": [
+        {
+          "start": 0,
+          "end": 700,
+          "state": "deep"
+        },
+        {
+          "start": 700,
+          "end": 800,
+          "state": "unknown"
+        },
+        {
+          "start": 800,
+          "end": 1200,
+          "state": "distracted"
+        }
+      ],
+      "totals": {
+        "deep": 700.0,
+        "normal": 0.0,
+        "distracted": 400.0
+      }
+    },
+    "summary": {
+      "version": "study-patterns-v1",
+      "availability": {
+        "available": true,
+        "reasons": []
+      },
+      "sustained_count": 1,
+      "sustained_seconds": 700,
+      "longest_sustained": 700,
+      "interruption_count": 1,
+      "interruption_seconds": 400,
+      "eligible_seconds": 1200,
+      "observed_seconds": 1100,
+      "observation_coverage": 0.9166666666666666,
+      "tagged_seconds": {
+        "focused": 0,
+        "distracted": 0,
+        "flow": 0
+      },
+      "self_reported_sustained_seconds": 0,
+      "reflection": {
+        "concentration": null,
+        "distraction": null,
+        "flow": null
+      }
+    }
+  },
+  {
+    "session": {
+      "id": "break",
+      "elapsed": 1300,
+      "timeline": [
+        {
+          "start": 0,
+          "end": 600,
+          "state": "present"
+        },
+        {
+          "start": 600,
+          "end": 700,
+          "state": "break"
+        },
+        {
+          "start": 700,
+          "end": 1300,
+          "state": "present"
+        }
+      ]
+    },
+    "study_periods": {
+      "available": true,
+      "intervals": [
+        {
+          "start": 0,
+          "end": 600,
+          "state": "deep"
+        },
+        {
+          "start": 600,
+          "end": 700,
+          "state": "break"
+        },
+        {
+          "start": 700,
+          "end": 1300,
+          "state": "deep"
+        }
+      ],
+      "totals": {
+        "deep": 1200.0,
+        "normal": 0.0,
+        "distracted": 0.0
+      }
+    },
+    "summary": {
+      "version": "study-patterns-v1",
+      "availability": {
+        "available": true,
+        "reasons": []
+      },
+      "sustained_count": 2,
+      "sustained_seconds": 1200,
+      "longest_sustained": 600,
+      "interruption_count": 0,
+      "interruption_seconds": 0,
+      "eligible_seconds": 1200,
+      "observed_seconds": 1200,
+      "observation_coverage": 1.0,
+      "tagged_seconds": {
+        "focused": 0,
+        "distracted": 0,
+        "flow": 0
+      },
+      "self_reported_sustained_seconds": 0,
+      "reflection": {
+        "concentration": null,
+        "distraction": null,
+        "flow": null
+      }
+    }
+  }
+]

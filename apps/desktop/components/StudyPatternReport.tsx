@@ -6,7 +6,7 @@ import { annotationLabels, parseOffset } from '../src/study-patterns'
 
 const emptyReflection: Reflection = { concentration: null, distraction: null, flow: null }
 
-export default function StudyPatternReport({ session }: { session: StudySession }) {
+export default function StudyPatternReport({ session, transport = jsonRequest }: { session: StudySession; transport?: typeof jsonRequest }) {
   const [analysis, setAnalysis] = useState<SessionAnalysis | null>(null)
   const [reflection, setReflection] = useState<Reflection>(emptyReflection)
   const [annotations, setAnnotations] = useState<StudyAnnotation[]>([])
@@ -28,18 +28,18 @@ export default function StudyPatternReport({ session }: { session: StudySession 
     let stopped = false
     alive.current = true
     setLoadingError('')
-    void jsonRequest<SessionAnalysis>(`${path}/analysis`).then(result => {
+    void transport<SessionAnalysis>(`${path}/analysis`).then(result => {
       if (!stopped) { setAnalysis(result); setReflection(result.reflection); setAnnotations(result.annotations) }
     }).catch(() => { if (!stopped) setLoadingError('Study patterns could not be loaded. Your saved session is safe.') })
     return () => { stopped = true; alive.current = false }
-  }, [path, retry])
+  }, [path, retry, transport])
 
   async function save(action: 'reflection' | 'annotations') {
     if (busy.current) return
     busy.current = true; setPending(action)
     setErrors(value => ({ ...value, [action]: '' })); setMessages(value => ({ ...value, [action]: '' }))
     try {
-      const result = await jsonRequest<SessionAnalysis>(`${path}/${action}`, action === 'reflection' ? reflection : { annotations })
+      const result = await transport<SessionAnalysis>(`${path}/${action}`, action === 'reflection' ? reflection : { annotations })
       if (alive.current) { setAnalysis(result); setMessages(value => ({ ...value, [action]: action === 'reflection' ? 'Reflection saved.' : 'Timeline tags saved.' })) }
     } catch (error) {
       if (alive.current) setErrors(value => ({ ...value, [action]: `${error instanceof Error ? error.message : 'Could not save.'} Your entries are still here; retry saving. The session is already saved.` }))

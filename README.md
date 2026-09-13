@@ -61,3 +61,9 @@ Gaze maps, quality readings, validation errors, reliability trials, and diagnost
 Run `make test` for Python and frontend tests, TypeScript checks, and the production build. Tests use synthetic camera observations and temporary databases; they do not activate the webcam. Browser layout checks cover desktop and a 390px mobile viewport, keyboard selection, neutral gaps, and overflow.
 
 Raw frames, full face meshes, and video are never stored. Internal numerical observations, historical calibration parameters, diagnostics, reflections, and tags remain local.
+
+## Public website (separate app)
+
+`apps/web` adds Google/email accounts, cloud session history, optional browser presence tracking, analysis, reflections, exports, and data controls. It uses Supabase Auth/Postgres/Edge Functions and Sites hosting. The local app and its SQLite history remain independent.
+
+See [public website setup, API, validation, and launch](docs/public-web.md). A local Supabase stack can exercise the full email/session flow without a production account. Public launch requires a configured production Supabase project, Google OAuth, and SMTP sender; the website does not simulate successful cloud saves when these are missing.

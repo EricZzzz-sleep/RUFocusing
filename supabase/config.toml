@@ -1,0 +1,30 @@
+project_id = "rufocusing"
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+[db]
+port = 54322
+major_version = 17
+[studio]
+enabled = true
+port = 54323
+[local_smtp]
+enabled = true
+port = 54324
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:5174"
+additional_redirect_urls = ["http://127.0.0.1:5174/auth/callback", "http://127.0.0.1:5174/auth/reset"]
+jwt_expiry = 3600
+enable_signup = true
+minimum_password_length = 10
+[auth.email]
+enable_signup = true
+enable_confirmations = true
+double_confirm_changes = true
+[functions.api]
+# The function validates every bearer token with auth.getUser(), including deletions.
+verify_jwt = false
