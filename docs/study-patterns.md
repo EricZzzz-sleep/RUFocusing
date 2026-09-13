@@ -1,12 +1,14 @@
 # Study patterns and personal reflection
 
+> The current UI centers on three estimated study periods and keeps reflections collapsed. This document also describes the retained developer analysis fields. See [current behavior](../README.md#estimated-study-periods).
+
 This release analyzes **saved** sessions from numerical presence timelines. “Deep study” means sustained concentration, not neural-network training. There are no automatic mental-state labels, overall focus scores, live alerts, app/site monitoring, new models, or video recordings.
 
 ## Using the reports
 
 On **Analysis**, choose Last 7 days (the default), Last 30 days, or All time. **Study patterns** uses the same saved-session date selection as the daily chart. Session history search, mode, and completion filters affect only the history list. Completed and interrupted sessions count; grouping uses the browser's local start date, including today.
 
-Save a session or open one from history. Its report starts with separate cards for observed sustained at-desk periods, possible interruptions, presence coverage, and personal ratings. Existing session timing, presence totals, gaze context, and diagnostic results remain available below.
+Save a session or open one from history. Its report shows Deep study, Normal, and Distracted totals and a selectable step-line timeline. Personal ratings and tags are inside Reflection; technical evidence and diagnostics are omitted from the user interface.
 
 The optional reflection asks for concentration (1 = very low, 5 = very high), distraction frequency (1 = rarely, 5 = very often), and **Self-reported flow** (Yes / No / Unsure). Flow means feeling absorbed and working smoothly. This short product question is not a validated psychological scale. The [background flow study](https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2023.1187153/full) uses recalled experience; our reports likewise keep reported experience distinct from camera observations.
 
@@ -28,11 +30,11 @@ Optional **Focused**, **Distracted**, and **Flow** timeline tags use elapsed `HH
 
 Ten minutes is a versioned **product default**, not a scientifically validated concentration threshold. At-desk evidence may support sustained study but cannot establish deep concentration. Gaze regions, gaze stability, center gaze, looking down, or reading paper do not label focus, distraction, or flow. Camera failures, uncalibrated/outside-display gaze, and missing observations remain unknown in their respective observation layers.
 
-Only the new behavioral indicators exclude diagnostics. Existing elapsed time, presence totals, daily study time (`elapsed - breaks`), gaze coverage, and trial-time definitions are unchanged. Report cards explicitly label the distinct coverage denominator. Aggregates use summed observed/eligible durations, including timer-only eligible time; sessions with unreliable exclusion provenance do not contribute either duration. Behavioral counts/totals display N/A when no session has usable presence evidence. Personal ratings/tags still aggregate for those sessions. Session-wide ratings are never assigned to individual minutes.
+Only the new behavioral indicators exclude diagnostics. Existing elapsed time, presence totals, daily study time (`elapsed - breaks`), gaze coverage, and trial-time definitions are unchanged. Developer analysis fields retain the distinct coverage denominator. Aggregates use summed observed/eligible durations, including timer-only eligible time; sessions with unreliable exclusion provenance do not contribute either duration. Behavioral counts/totals display N/A when no session has usable presence evidence. Personal ratings/tags still aggregate for those sessions. Session-wide ratings are never assigned to individual minutes.
 
 ## API and persistence
 
-API health and launcher compatibility require **version 4**. Existing loopback/origin checks, `X-RUFocusing: 1`, JSON-object requests, the 4 KiB body limit, and controller serialization apply.
+API health and launcher compatibility require **version 5**. Existing loopback/origin checks, `X-RUFocusing: 1`, JSON-object requests, the 4 KiB body limit, and controller serialization apply.
 
 - `GET /api/sessions/{id}/analysis`: detailed, versioned summary, availability/reasons, derived evidence intervals, sustained periods, away episodes, exact diagnostic exclusions, reflection, and tags.
 - `POST /api/sessions/{id}/reflection`: replace with `{ "concentration": 1..5 | null, "distraction": 1..5 | null, "flow": "yes" | "no" | "unsure" | null }`. Omitted reflection fields clear their answers.
@@ -59,3 +61,9 @@ The separate [physical gaze reliability milestone](gaze-reliability.md) remains 
 - Desktop (1440 px) and mobile (375 px) Analysis/report screens, including expanded evidence tables, passed axe WCAG 2 A/AA and 2.1 AA checks with no violations. Overflow checks passed at 320, 375, 768, and 1440 px. Screens were visually inspected.
 - The existing local database upgraded to v4 with all five saved sessions and original timeline/summary fields preserved. The running local API was restarted with the camera off and no active session.
 - All example observations were synthetic. No physical-webcam accuracy or mental-state validation is claimed.
+
+## Simple study-period response
+
+Both the session response (`active`, `history`, and `finished`) and saved `/api/sessions/{id}/analysis` response include `study_periods`: an `available` boolean, `intervals` of `{start, end, state}`, and `totals` for `deep`, `normal`, and `distracted`. The states `break`, `diagnostic`, and `unknown` remain gaps and contribute to no total. All offsets and durations are seconds.
+
+The backend uses the same partition and availability rules above. Whole continuous presence intervals of at least 600 seconds become `deep`, shorter ones `normal`, and existing away intervals `distracted`. At the live threshold, the whole presence interval is reclassified. Reflections and gaze do not affect these estimates. Missing diagnostic provenance prevents classification; zero usable observations yields `available: false`. Raw evidence and historical analysis fields are retained.

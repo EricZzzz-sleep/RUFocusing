@@ -1,5 +1,7 @@
 # Experimental gaze reliability checks
 
+> Developer protocol reference. The simplified user interface no longer exposes accuracy checks, reliability trials, result tables, or downloads. The APIs below remain available for development. User gaze setup is saved across sessions; see [saved setup](../README.md#saved-gaze-setup). UI walkthroughs below describe the previous diagnostics release.
+
 The checks measure the existing gaze estimator. They do not fit a model, recognize a person, or measure concentration. Physical performance on your webcam is still unverified.
 
 ## Run an accuracy check
@@ -34,7 +36,7 @@ Trial status **Completed** means the protocol reached its final check. Inspect e
 
 `gaze-reliability-v1` records compact numerical summaries, target order/results, rejection counts, durations, condition notes, timestamps, display/camera configuration, calibration identifiers, and model/protocol versions. Calibration attempts include failed and cancelled attempts. Full frames, video, full landmarks, and training features are not stored in diagnostics. Public results and JSON downloads do not contain model coefficients.
 
-SQLite schema version 3 adds `diagnostic_runs`, `diagnostic_targets`, and `diagnostic_durations`. Migration from versions 0/1/2 is transactional. Saved sessions and presence/gaze records are preserved. Unfinished diagnostics reopen as interrupted at their saved checkpoint. Existing sessions without diagnostics show an empty state. Restart an older backend before using this frontend; the launcher now requires API version 4 for the additional [study-pattern reports](study-patterns.md).
+SQLite schema version 3 adds `diagnostic_runs`, `diagnostic_targets`, and `diagnostic_durations`. Migration from versions 0/1/2 is transactional. Saved sessions and presence/gaze records are preserved. Unfinished diagnostics reopen as interrupted at their saved checkpoint. Existing sessions without diagnostics show an empty state. Restart an older backend before using this frontend; the launcher now requires API version 5 for the additional [study-pattern reports](study-patterns.md).
 
 Public interfaces retain loopback/origin restrictions, the `X-RUFocusing: 1` header, JSON validation, the 4 KiB POST limit, and the shared session command lock:
 

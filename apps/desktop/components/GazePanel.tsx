@@ -1,46 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { gazeRequest } from '../src/gaze-api'
 import type { DisplayGeometry, GazeState } from '../src/types'
-import DiagnosticsPanel from './DiagnosticsPanel'
-import { gazeRegionLabels } from '../src/types'
 
-const messages: Record<string, string> = {
-  accuracy_check_failed_recalibrate: 'The accuracy check failed. Recalibrate before gaze estimates resume.',
-  uncalibrated: 'Calibrate to estimate where you look on this display.',
-  calibration_in_progress: 'Follow each target with your eyes. Keep your head comfortably still.',
-  calibration_accuracy_failed: 'Calibration did not meet the accuracy checks. Improve lighting, keep both eyes visible, and try again.',
-  camera_failed_recalibrate: 'The camera stopped. Retry the camera, then recalibrate.',
-  camera_config_changed_recalibrate: 'The camera configuration changed. Calibrate again.',
-  camera_restarted_recalibrate: 'The camera restarted. Calibrate again before tracking.',
-  display_changed_recalibrate: 'The display configuration changed. Calibrate again.',
-  seating_changed_recalibrate: 'Your seating position changed. Calibrate again.',
-  seating_changed: 'Your position is outside the calibrated range. Return to your original position.',
-  eyes_closed: 'Eyes are closed or not clearly visible.',
-  no_face: 'Position your face in the camera view.', multiple_faces: 'Only one face can be tracked.',
-  unavailable: 'Waiting for usable camera observations.', stale: 'Waiting for a fresh eye observation.',
-  face_too_small: 'Move a little closer to the camera.', eyes_too_small: 'Move closer so both eyes are visible.',
-  face_clipped: 'Keep your whole face inside the camera view.', extreme_head_angle: 'Face the display more directly.',
-  unreliable_eyes: 'Eye landmarks are unreliable. Check lighting and camera framing.',
-  invalid_landmarks: 'Eye landmarks are unavailable.', head_pose_unavailable: 'Head pose is unavailable.',
-  outside_calibrated_area: 'The estimate is outside the calibrated display. No point is shown.',
-  calibration_abandoned: 'Calibration was interrupted. Start again when ready.',
-  calibration_interrupted: 'Calibration was interrupted. Enable the camera and start again.',
-  calibration_reset: 'Calibration cleared. Calibrate when ready.', estimated: 'Experimental gaze estimate; this does not measure concentration.',
-}
-const explanation = (reason: string) => messages[reason] ?? 'Waiting for a usable, calibrated observation.'
 const displayGeometry = (): DisplayGeometry => ({ width: window.screen.width, height: window.screen.height, device_pixel_ratio: window.devicePixelRatio })
 
-export default function GazePanel({ enabled, busy, visible = true, inSession = false }: { enabled: boolean; busy: boolean; visible?: boolean; inSession?: boolean }) {
-  const [diagnosticActive, setDiagnosticActive] = useState(false)
-  const diagnosticActiveRef = useRef(false)
-  const collectionChanged = useCallback((active: boolean) => {
-    if (active !== diagnosticActiveRef.current) setFresh(false)
-    diagnosticActiveRef.current = active
-    setDiagnosticActive(active)
-  }, [])
+export default function GazePanel({ enabled, busy, visible = true }: { enabled: boolean; busy: boolean; visible?: boolean; inSession?: boolean }) {
   const [stableQuality, setStableQuality] = useState('unavailable')
-  const [stableTrackingReason, setStableTrackingReason] = useState('unavailable')
-  const reasonCandidate = useRef({ value: 'unavailable', since: 0 })
   const qualityCandidate = useRef({ value: 'unavailable', since: 0 })
   const [data, setData] = useState<GazeState | null>(null)
   const [fresh, setFresh] = useState(false)
@@ -69,9 +34,6 @@ export default function GazePanel({ enabled, busy, visible = true, inSession = f
         const next = await gazeRequest(undefined, { calibration_id: calibrationId.current })
         if (!stopped && version === epoch.current && !commandBusy.current) {
           setData(next)
-          const reason = next.observation.reason
-          if (reasonCandidate.current.value !== reason) reasonCandidate.current = { value: reason, since: performance.now() }
-          else if (performance.now() - reasonCandidate.current.since >= 600) setStableTrackingReason(reason)
           const candidate = qualityCandidate.current
           if (candidate.value !== next.quality) qualityCandidate.current = { value: next.quality, since: performance.now() }
           else if (performance.now() - candidate.since >= 600) setStableQuality(next.quality)
@@ -95,7 +57,10 @@ export default function GazePanel({ enabled, busy, visible = true, inSession = f
       if (alive.current && version === epoch.current) { if (action === 'start') calibrationId.current = next.calibration.id; setData(next); setFresh(false) }
       return next
     } catch (reason) {
-      if (alive.current && version === epoch.current) setError(reason instanceof Error ? reason.message : 'The gaze request failed.')
+      if (alive.current && version === epoch.current) {
+        setError(reason instanceof Error ? reason.message : 'The gaze request failed.')
+        if (action === 'complete') { calibrationId.current = null; await leaveFullscreen() }
+      }
       return null
     } finally { commandBusy.current = false; if (alive.current) setWorking(false) }
   }
@@ -125,7 +90,7 @@ export default function GazePanel({ enabled, busy, visible = true, inSession = f
   }
 
   async function start() {
-    if (busy || working || diagnosticActive || data?.diagnostic_check_active || !enabled || !visibleRef.current) return
+    if (busy || working || data?.diagnostic_check_active || !enabled || !visibleRef.current) return
     setError(''); setFresh(false)
     if (!document.documentElement.requestFullscreen) { setError('Fullscreen is required for display calibration. Use a browser with fullscreen support.'); return }
     try {
@@ -161,7 +126,8 @@ export default function GazePanel({ enabled, busy, visible = true, inSession = f
   useEffect(() => {
     if (!visible || !open || !data || working || commandBusy.current || !calibrationId.current) return
     const calibration = data.calibration
-    if (!enabled || calibration.id !== calibrationId.current) { void cancel(); return }
+    if (calibration.id !== calibrationId.current) { calibrationId.current = null; void leaveFullscreen(); return }
+    if (!enabled) { void cancel(); return }
     if (calibration.status === 'ready' || calibration.status === 'failed') { calibrationId.current = null; void leaveFullscreen(); return }
     if (error || calibration.collecting || calibration.target_error) return
     if (calibration.completed_targets === calibration.target_count) {
@@ -176,40 +142,47 @@ export default function GazePanel({ enabled, busy, visible = true, inSession = f
   useEffect(() => {
     if (!data?.calibration.display) return
     const expected = data.calibration.display
-    const check = () => {
+    let confirmed = ''
+    let stopped = false
+    const check = async () => {
       const actual = displayGeometry()
-      if (actual.width !== expected.width || actual.height !== expected.height || actual.device_pixel_ratio !== expected.device_pixel_ratio) {
-        setFresh(false)
-        if (open) void cancel()
-        else void command('display', { display: actual })
+      const key = JSON.stringify(actual)
+      if (open) {
+        if (actual.width !== expected.width || actual.height !== expected.height || actual.device_pixel_ratio !== expected.device_pixel_ratio) void cancel()
+        return
       }
+      if (commandBusy.current || confirmed === key) return
+      const version = epoch.current
+      try {
+        const next = await gazeRequest('display', { display: actual })
+        if (!stopped && version === epoch.current && !commandBusy.current) {
+          confirmed = key
+          setData(next)
+          setFresh(false)
+        }
+      } catch { /* Retry confirmation without hiding setup errors or accepting stale points. */ }
     }
     check()
+    const retry = setInterval(() => void check(), 2000)
     window.addEventListener('resize', check)
     window.addEventListener('focus', check)
-    return () => { window.removeEventListener('resize', check); window.removeEventListener('focus', check) }
-  }, [data?.calibration.display?.width, data?.calibration.display?.height, data?.calibration.display?.device_pixel_ratio, open])
+    return () => { stopped = true; clearInterval(retry); window.removeEventListener('resize', check); window.removeEventListener('focus', check) }
+  }, [data?.calibration.id, open])
 
   const calibration = data?.calibration
-  const point = data?.observation
-  const showPoint = Boolean(!diagnosticActive && !data?.diagnostic_check_active && enabled && fresh && calibration?.status === 'ready' && point?.valid && point.x != null && point.y != null)
   const target = calibration?.targets[Math.min(calibration.completed_targets, calibration.target_count - 1)]
-  return <section className="panel gaze-panel" aria-labelledby="gaze-title">
-    <div className="panel-heading"><div><span className="eyebrow">WHERE YOU LOOK</span><h2 id="gaze-title">Screen gaze</h2></div><span className="small-badge">Experimental</span></div>
-    <div className="gaze-body">
-      <p className="gaze-message" role="status">{!enabled ? 'Enable webcam observations to calibrate and track gaze.' : !fresh ? 'Waiting for the gaze service…' : explanation(calibration?.status === 'ready' ? stableTrackingReason : calibration?.reason ?? 'uncalibrated')}</p>
-      <div className="gaze-map" style={calibration?.display ? { aspectRatio: `${calibration.display.width} / ${calibration.display.height}` } : undefined} role="img" aria-label={showPoint ? `Estimated gaze: ${gazeRegionLabels[point!.region!]}` : 'Calibrated display map; no valid gaze point'}>
-        <span className="gaze-map-label">Calibrated display</span>
-        {showPoint && <span className="gaze-point" data-testid="gaze-point" style={{ left: `${point!.x! * 100}%`, top: `${point!.y! * 100}%` }} />}
-      </div>
-      <p className="gaze-quality">Eyes: {stableQuality === 'usable' ? 'Usable landmarks' : explanation(stableQuality)}</p>
-      {calibration?.validation && <p className="gaze-quality">Validation error: {calibration.validation.median_error == null ? 'unavailable' : `${(calibration.validation.median_error * 100).toFixed(1)}% median / ${((calibration.validation.p90_error ?? 0) * 100).toFixed(1)}% p90`} of display diagonal. {calibration.validation.accepted ? 'Calibration passed.' : 'Calibration failed.'}</p>}
-      {error && <p className="error" role="alert">{error}</p>}
-      <button ref={opener} type="button" className="button secondary" disabled={!enabled || busy || working || open || diagnosticActive || data?.diagnostic_check_active} onClick={() => void start()}>{working ? 'Updating calibration…' : calibration?.status === 'ready' ? 'Recalibrate gaze' : 'Calibrate gaze'}</button>
-      {calibration?.rejections && Object.keys(calibration.rejections).length > 0 && <p className="gaze-quality">During calibration: {Object.entries(calibration.rejections).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([reason, count]) => `${explanation(reason)} (${count} observations)`).join(' ')}</p>}
-      <p className="footnote">One display, one person. Follow 9 training targets and 4 accuracy checks. Gaze is not a measure of concentration.</p>
+  const ready = calibration?.status === 'ready'
+  const reason = data?.observation.reason ?? ''
+  const status = !enabled ? 'Camera off' : !fresh ? 'Connecting gaze…' : !ready ? 'Set up gaze' :
+    reason === 'display_changed_recalibrate' || reason === 'camera_config_changed_recalibrate' ? 'Setup needs updating' :
+    reason.startsWith('seating_changed') ? 'Return to your setup position or redo setup' :
+    data?.observation.valid ? 'Gaze ready' : 'Waiting for your eyes'
+  return <section className="gaze-panel compact-gaze" aria-label="Gaze setup">
+    <div className="compact-gaze-row"><span className="gaze-message" role="status">{status}</span>
+      <button ref={opener} type="button" className="text-button" disabled={!enabled || busy || working || open || data?.diagnostic_check_active} onClick={() => void start()}>{working ? 'Updating setup…' : ready ? 'Redo setup' : 'Set up gaze'}</button>
+      {calibration?.id && !open && <details className="gaze-options"><summary>Setup options</summary><button type="button" className="text-button" disabled={busy || working} onClick={() => void command('reset')}>Reset gaze setup</button></details>}
     </div>
-    <DiagnosticsPanel enabled={enabled} busy={busy || working || open} visible={visible} inSession={inSession} onCollectionChange={collectionChanged} />
+    {error && <p className="error" role="alert">{error}</p>}
     {open && <dialog ref={dialog} className="calibration-screen" aria-labelledby="calibration-title" onCancel={event => { event.preventDefault(); void cancel() }} onKeyDown={event => {
       if (event.key !== 'Tab') return
       const buttons = event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')
@@ -218,11 +191,11 @@ export default function GazePanel({ enabled, busy, visible = true, inSession = f
         event.preventDefault(); (event.shiftKey ? last : first).focus()
       }
     }}>
-      <div className="calibration-heading"><h2 id="calibration-title">{calibration?.status === 'validating' ? 'Checking calibration accuracy' : 'Look at the target'}</h2><p>Keep your head comfortably still and both eyes visible.</p></div>
-      <button autoFocus className="button secondary calibration-cancel" type="button" onClick={() => void cancel()}>Cancel calibration</button>
+      <div className="calibration-heading"><h2 id="calibration-title">Look at the target</h2><p>Keep your head comfortably still and both eyes visible.</p></div>
+      <button autoFocus className="button secondary calibration-cancel" type="button" onClick={() => void cancel()}>Cancel setup</button>
       {target && !calibration?.target_error && !error && <div className="calibration-target" role="img" style={{ left: `${target[0] * 100}%`, top: `${target[1] * 100}%` }} aria-label={`Look here: target ${Math.min((calibration?.completed_targets ?? 0) + 1, 13)} of 13`}><span /></div>}
       {(calibration?.target_error || error) && <div className="calibration-retry"><p role="alert">{calibration?.target_error || error}</p><button type="button" className="button primary" disabled={working} onClick={() => { setError(''); void command((calibration?.completed_targets ?? 0) >= 13 ? 'complete' : 'target', { calibration_id: calibrationId.current, target_index: calibration?.completed_targets }) }}>Retry target</button></div>}
-      <p className="calibration-progress" role="status">{stableQuality !== 'usable' ? `${explanation(stableQuality)} ` : ''}{calibration?.completed_targets ?? 0} / 13 targets completed · {calibration?.samples ?? 0} usable frames collected for this target</p>
+      <p className="calibration-progress" role="status">{stableQuality !== 'usable' ? 'Keep both eyes visible. ' : ''}{calibration?.completed_targets ?? 0} / {calibration?.target_count ?? 13} targets</p>
     </dialog>}
   </section>
 }

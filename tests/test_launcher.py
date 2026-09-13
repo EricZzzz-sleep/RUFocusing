@@ -65,7 +65,7 @@ class LauncherTests(unittest.TestCase):
         class OldHandler(BaseHTTPRequestHandler):
             def log_message(self, *_args): pass
             def do_GET(handler):
-                body = json.dumps({'ok': True, 'app': 'RUFocusing', 'project': hashlib.sha256(str(run.ROOT).encode()).hexdigest(), 'frontend_port': self.port}).encode()
+                body = json.dumps({'ok': True, 'app': 'RUFocusing', 'api_version': 4, 'project': hashlib.sha256(str(run.ROOT).encode()).hexdigest(), 'frontend_port': self.port}).encode()
                 handler.send_response(200)
                 handler.end_headers()
                 handler.wfile.write(body)

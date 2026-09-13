@@ -47,7 +47,7 @@ def make_handler(controller, frontend_port=5173):
                 self.respond(200, {
                     'ok': True,
                     'app': 'RUFocusing',
-                    'api_version': 4,
+                    'api_version': 5,
                     'project': hashlib.sha256(str(ROOT).encode()).hexdigest(),
                     'frontend_port': frontend_port,
                 })

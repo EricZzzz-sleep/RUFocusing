@@ -301,7 +301,7 @@ class MigrationTests(unittest.TestCase):
             connection.commit(); connection.close()
             store = Store(path)
             self.assertEqual(store.get('saved')['task'], 'Old task')
-            self.assertEqual(store.connection.execute('PRAGMA user_version').fetchone()[0], 4)
+            self.assertEqual(store.connection.execute('PRAGMA user_version').fetchone()[0], 5)
             tracker = GazeTracker(); tracker.start(DISPLAY, 0)
             collector = Diagnostics(); collector.begin_calibration('saved', tracker, 0, 0)
             store.save_diagnostic(collector.calibration); identifier = collector.calibration['id']

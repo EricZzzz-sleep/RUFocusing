@@ -41,7 +41,23 @@ class AnalysisSummary(TypedDict):
     reflection: Reflection
 
 
+StudyPeriodState = Literal['deep', 'normal', 'distracted', 'break', 'diagnostic', 'unknown']
+
+
+class StudyPeriod(TypedDict):
+    start: float
+    end: float
+    state: StudyPeriodState
+
+
+class StudyPeriods(TypedDict):
+    available: bool
+    intervals: list[StudyPeriod]
+    totals: dict[str, float]
+
+
 class SessionAnalysis(TypedDict):
+    study_periods: StudyPeriods
     session_id: str
     summary: AnalysisSummary
     threshold_seconds: int
@@ -151,7 +167,19 @@ def analyze_session(session, exclusions=(), provenance_reason=None, reflection=N
         'self_reported_sustained_seconds': total([row for row in annotations if row['kind'] in ('focused', 'flow') and row['end'] - row['start'] >= SUSTAINED_SECONDS]),
         'reflection': reflection,
     }
-    return {'session_id': session['id'], 'summary': summary, 'threshold_seconds': SUSTAINED_SECONDS,
+    periods: list[StudyPeriod] = []
+    totals = dict.fromkeys(('deep', 'normal', 'distracted'), 0.0)
+    for row in intervals:
+        state = row['state']
+        if state in ('present', 'away'):
+            state = ('deep' if row['end'] - row['start'] >= SUSTAINED_SECONDS else 'normal') if state == 'present' else 'distracted'
+            if not available:
+                state = 'unknown'
+        periods.append({**row, 'state': state})
+        if state in totals:
+            totals[state] += row['end'] - row['start']
+    study_periods: StudyPeriods = {'available': available, 'intervals': periods, 'totals': totals}
+    return {'session_id': session['id'], 'summary': summary, 'study_periods': study_periods, 'threshold_seconds': SUSTAINED_SECONDS,
             'intervals': intervals, 'sustained_periods': sustained if available else [],
             'interruptions': interruptions if available else [], 'exclusions': exclusions,
             'reflection': reflection, 'annotations': list(annotations)}

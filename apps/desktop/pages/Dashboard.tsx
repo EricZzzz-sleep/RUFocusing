@@ -2,15 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { request } from '../src/api'
 import type { AppState, StudySession, WorkspacePage, PreviewPosition } from '../src/types'
-import { cameraStatusLabels, duration, labels, studyModes, timer } from '../src/types'
-import Timeline from '../components/Timeline'
+import { cameraStatusLabels, studyModes, timer } from '../src/types'
+import StudyTimeline, { StudyTotals, sumStudyPeriods } from '../components/StudyTimeline'
 import SessionDetails from '../components/SessionDetails'
 import CameraPreview from '../components/CameraPreview'
-import StudyTrends from '../components/StudyTrends'
-import StudyPatterns from '../components/StudyPatterns'
 import GazePanel from '../components/GazePanel'
 import SessionHistory from '../components/SessionHistory'
-import { dailyStudy, inPeriod, localDay, periods, summarize } from '../src/analysis'
+import { inPeriod, localDay, periods } from '../src/analysis'
 import type { Period } from '../src/analysis'
 
 const progress: Record<string, string> = {
@@ -124,61 +122,49 @@ export default function Dashboard() {
   }, [data])
   const day = localDay(new Date())
   const history = useMemo(() => inPeriod(data?.history ?? [], period), [data?.history, period, day])
-  const daily = useMemo(() => dailyStudy(history, period), [history, period, day])
-  const summary = summarize(history)
-  const metrics = [
-    ['Saved sessions', String(summary.count), 'Completed & interrupted'],
-    ['Study time', duration(summary.study), 'Excluding breaks'],
-    ['At-desk time', duration(summary.present), 'Face-presence estimate'],
-    ['Longest at-desk period', duration(summary.longest), 'Continuous face presence'],
-    ['Observation coverage', summary.coverage, 'Observed / study time'],
-  ]
+  const studyPeriods = useMemo(() => sumStudyPeriods(history), [history])
 
   return <>
     <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); document.getElementById('main-content')?.focus() }}>Skip to study workspace</a>
     <header className="app-header"><div className="header-inner"><a className="brand" href="#analysis" onClick={event => { event.preventDefault(); navigate('analysis') }} aria-label="RUFocusing home"><span className="brand-mark" aria-hidden="true">r<span>u</span></span>RUFocusing<span className="brand-divider" /><span className="header-section">Study space</span></a><span className={`connection ${connected ? 'online' : ''}`}><i />{connected ? 'Local workspace' : 'Connecting…'}</span></div></header>
     <main id="main-content" tabIndex={-1}>
       <nav className="workspace-nav" aria-label="Study workspace">{(['analysis', 'record'] as const).map(item => <a key={item} href={`#${item}`} aria-current={page === item ? 'page' : undefined} onClick={event => { event.preventDefault(); navigate(item) }}>{item === 'analysis' ? 'Analysis' : 'Record'}</a>)}</nav>
-      <div className="page-heading"><div><p className="eyebrow">{page === 'analysis' ? 'A LITTLE MORE INTENTION' : 'ONE THING AT A TIME'}</p><h1 ref={heading} tabIndex={-1}>{page === 'analysis' ? 'Your study overview' : 'Your study session'}<span>.</span></h1><p className="intro">{page === 'analysis' ? 'Make time for your work. See how each session unfolds.' : 'Set up your camera, calibrate your gaze, and make time to study.'}</p></div>{page === 'analysis' && <a className="button secondary session-jump" href="#record" onClick={event => { event.preventDefault(); navigate('record') }}>{active ? 'Return to session' : 'Record a session'}<span aria-hidden="true">→</span></a>}</div>
+      <div className="page-heading"><div><p className="eyebrow">{page === 'analysis' ? 'A LITTLE MORE INTENTION' : 'ONE THING AT A TIME'}</p><h1 ref={heading} tabIndex={-1}>{page === 'analysis' ? 'Your study overview' : 'Your study session'}<span>.</span></h1><p className="intro">{page === 'analysis' ? 'Make time for your work. See how each session unfolds.' : 'Choose a task and make time to study.'}</p></div>{page === 'analysis' && <a className="button secondary session-jump" href="#record" onClick={event => { event.preventDefault(); navigate('record') }}>{active ? 'Return to session' : 'Record a session'}<span aria-hidden="true">→</span></a>}</div>
       {page === 'analysis' && active && <div className="notice active-session-status">{active.status === 'break' ? 'On a break' : 'Session running'} · {active.task} · {timer(active.elapsed)}</div>}
       {!connected && <div className="notice" role="status">{data ? 'Connection lost. Reconnecting to your local session…' : 'Connecting to the local service. If this persists, start the app with make run.'}</div>}
       {error && <div className="error" role="alert">{error}</div>}
       <div hidden={page !== 'analysis'}>
-      <div className="overview-heading"><div><h2>Saved session overview</h2><p>Presence estimates across your recorded study time.</p></div><div className="period-control"><label htmlFor="period">Date range</label><select id="period" value={period} onChange={event => setPeriod(event.target.value as Period)}>{(Object.keys(periods) as Period[]).map(value => <option key={value} value={value}>{periods[value]}</option>)}</select></div></div>
-      <section className="metrics" aria-label="Saved session overview">{metrics.map(([label, value, caption], index) => <div className={`metric ${index === 2 ? 'featured' : ''}`} key={label}><span className="metric-label">{label}</span><strong>{data ? value : '—'}</strong><span className="metric-caption">{caption}</span></div>)}</section>
-      <StudyTrends days={daily} loading={!data} />
-      <StudyPatterns sessions={history} loading={!data} />
+      <div className="overview-heading"><div><h2>Your study time</h2></div><div className="period-control"><label htmlFor="period">Date range</label><select id="period" value={period} onChange={event => setPeriod(event.target.value as Period)}>{(Object.keys(periods) as Period[]).map(value => <option key={value} value={value}>{periods[value]}</option>)}</select></div></div>
+      <StudyTotals periods={studyPeriods} loading={!data} />
       <SessionHistory sessions={history} loading={!data} onSelect={setSelected} />
       </div>
       <div hidden={page !== 'record'}>
-      <div className="workspace-grid">
+      <div className="workspace-grid simple-workspace">
         <div className="session-column">
           <section className="panel session-panel" id="session" tabIndex={-1} aria-label="Session recording">
             <div className="panel-heading"><div><span className="eyebrow">{active ? 'IN PROGRESS' : 'ONE THING AT A TIME'}</span><h2>{active ? active.task : 'Settle into a session'}</h2></div><span className={`small-badge ${active ? 'is-active' : ''}`}>{active ? active.status === 'break' ? 'On a break' : 'Session active' : 'Ready when you are'}</span></div>
             {active ? <>
-              <div className="timer-area"><span className="mode-tag">{active.mode}</span><div className="timer" role="timer" aria-label="Elapsed session time">{timer(active.elapsed)}</div><span className={`presence-pill ${connected ? data!.state : 'unknown'}`}><i />{connected ? labels[data!.state] : 'Connection lost'}{connected && data!.state === 'away' ? ' · estimated' : ''}</span>{!connected && <p className="timer-note">Last received time. Reconnecting to your running session…</p>}</div>
+              <div className="timer-area"><span className="mode-tag">{active.mode}</span><div className="timer" role="timer" aria-label="Elapsed session time">{timer(active.elapsed)}</div>{!connected && <p className="timer-note">Last received time. Reconnecting to your running session…</p>}</div>
               <div className="session-controls"><button type="button" className="button secondary" disabled={busy || !connected} onClick={() => void action(active.status === 'break' ? 'resume' : 'pause')}>{pending === 'pause' || pending === 'resume' ? progress[pending] : active.status === 'break' ? 'Resume session' : 'Take a break'}</button><button type="button" className="button primary" disabled={busy || !connected} onClick={() => void action('end')}>{pending === 'end' ? 'Saving session…' : 'End & save session'}<span aria-hidden="true">↗</span></button></div>
-              <Timeline session={active} />
+              <StudyTimeline session={active} />
             </> : <form onSubmit={start}>
               <label htmlFor="task">What are you working on?</label><input id="task" value={task} onChange={event => setTask(event.target.value)} placeholder="e.g. Linear algebra · Problem set 03" maxLength={200} required autoComplete="off" />
-              <div className="form-row"><div><label htmlFor="mode">Study mode</label><select id="mode" value={mode} onChange={event => setMode(event.target.value)}>{studyModes.map(item => <option key={item}>{item}</option>)}</select></div><div className="camera-choice"><label className="checkbox-label"><input type="checkbox" checked={camera} disabled={busy || !connected} onChange={event => chooseCamera(event.target.checked)} />Use webcam observations</label><p>Face presence & head pose. No video saved.</p>{camera && <button type="button" className="text-button setup-preview-button" disabled={busy || !connected} onClick={openPreview}>Preview camera</button>}</div></div>
+              <div className="form-row"><div><label htmlFor="mode">Study mode</label><select id="mode" value={mode} onChange={event => setMode(event.target.value)}>{studyModes.map(item => <option key={item}>{item}</option>)}</select></div><div className="camera-choice"><span className="muted small">Camera setup is optional.</span></div></div>
               <div className="form-footer"><span>Your session stays on this device.</span><button type="submit" className="button primary" disabled={busy || !connected || !task.trim()}>{pending === 'start' ? 'Starting session…' : 'Start session'}<span aria-hidden="true">→</span></button></div>
             </form>}
           </section>
-          <section className="panel observation-panel"><div className="panel-heading"><div><span className="eyebrow">THE HERE & NOW</span><h2>Observations</h2></div><span className={`camera-status ${cameraStatus}`} role="status">Camera: {cameraStatusLabels[cameraStatus]}</span></div>
-            {active && <div className="live-camera-control"><label className="checkbox-label"><input type="checkbox" checked={active.camera_enabled} disabled={busy || !connected} onChange={event => void action('camera', { enabled: event.target.checked })} />Webcam observations</label><p>{active.status === 'break' ? active.camera_enabled ? 'Camera stays off during your break. Observations will resume with your session.' : 'Camera stays off during your break and on resume.' : active.camera_enabled ? 'Observations are on. Closing the preview keeps tracking on.' : 'Camera is off. Your timer continues; this time is marked unknown.'}</p></div>}
-            <div className={`observation-visual ${cameraStatus === 'ready' && data?.observation.face_count === 1 ? 'detected' : ''}`} aria-hidden="true"><div className="focus-corners"><span className="observation-glyph">◎</span></div></div>
-            <h3 className="observation-title">{cameraStatus === 'starting' ? 'Starting your camera' : cameraStatus === 'unavailable' ? 'Camera unavailable' : cameraStatus === 'ready' ? data?.observation.face_count === 1 ? 'Face detected' : data?.observation.face_count === 0 ? 'Looking for a face' : 'Multiple faces' : active?.status === 'break' ? 'Camera paused' : active ? 'Timer-only session' : 'Your space, your choice'}</h3>
-            <p className="observation-message">{cameraMessage}</p>
-            <div className="pose-readings">{(['pitch', 'yaw', 'roll'] as const).map(axis => <div key={axis}><span>{axis}</span><strong>{cameraStatus === 'ready' && data && data.observation[axis] != null ? `${data.observation[axis]}°` : '—'}</strong></div>)}</div>
-            {observing && <button type="button" className="button secondary show-preview" disabled={busy || !connected || (cameraStatus === 'starting' && previewOpen)} onClick={openPreview}>{cameraStatus === 'unavailable' ? 'Retry camera' : 'Show camera preview'}</button>}
-            <p className="footnote">Angles are approximate. Looking down does not mark you as away.</p>
+          <section className="panel setup-panel" aria-label="Camera and gaze setup">
+            <div className="panel-heading"><h2>Camera & gaze</h2><span className={`camera-status ${cameraStatus}`} role="status">Camera: {cameraStatusLabels[cameraStatus]}</span></div>
+            <div className="compact-camera-controls live-camera-control">
+              <label className="checkbox-label"><input type="checkbox" checked={active ? active.camera_enabled : camera} disabled={busy || !connected} onChange={event => active ? void action('camera', { enabled: event.target.checked }) : chooseCamera(event.target.checked)} />Use camera</label>
+              {(observing || (camera && !active)) && <button type="button" className="text-button" disabled={busy || !connected || (cameraStatus === 'starting' && previewOpen)} onClick={openPreview}>{cameraStatus === 'unavailable' ? 'Retry camera' : 'Show camera preview'}</button>}
+              <span className="muted small">{active?.status === 'break' ? 'Camera paused during break.' : 'Processed locally. No video saved.'}</span>
+            </div>
+            {cameraStatus === 'unavailable' && observing && <p className="setup-notice" role="status">Camera unavailable. Check access and retry.</p>}
+            <GazePanel visible={page === 'record'} enabled={observing && connected && cameraStatus === 'ready'} busy={busy} />
           </section>
         </div>
-        <aside>
-          <GazePanel inSession={Boolean(active && active.status === 'running')} visible={page === 'record'} enabled={observing && connected && cameraStatus === 'ready'} busy={busy} />
-          <section className="explanation-card"><span className="eyebrow">WHAT THE TIMELINE TELLS YOU</span><h2>Presence is a starting point.</h2><p>At desk means a face was detected. Away means no face was detected for at least 10 seconds.</p><p>Missing camera data stays unknown. These observations describe your session, not how deeply you were focused.</p><div className="privacy-line"><span aria-hidden="true">◎</span> Local processing. No video recordings.</div></section>
-        </aside>
+
       </div>
       </div>
       <footer><span>RUFocusing <span aria-hidden="true">/</span> A little time, well understood.</span><span>Saved on your device</span></footer>

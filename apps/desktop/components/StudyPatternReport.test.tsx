@@ -31,13 +31,12 @@ describe('Saved study pattern report', () => {
     })
     return node
   }
-  it('offers skipped ratings and renders separate evidence layers without automatic mental-state labels', async () => {
+  it('offers skipped ratings without technical evidence panels', async () => {
     await render()
     expect([...host.querySelectorAll('.reflection-fields select')].map(node => (node as HTMLSelectElement).value)).toEqual(['', '', ''])
-    expect(host.textContent).toContain('Concentration N/A')
-    expect(host.textContent).toContain('not a validated psychological scale')
-    expect(host.textContent).toContain('never automatically labeled distraction or flow')
-    expect(host.querySelector('.evidence-unknown')).not.toBeNull()
+    expect(host.textContent).toContain('Your reflection')
+    expect(host.textContent).not.toContain('coverage')
+    expect(host.querySelector('.evidence-table')).toBeNull()
     expect(host.querySelector('.tag-track .tag-focused')).toBeNull()
   })
   it('retains reflection values on failure and prevents duplicate commands while saving', async () => {
@@ -67,7 +66,7 @@ describe('Saved study pattern report', () => {
     expect(host.querySelector('[aria-label="Tag preview: Focused, 00:00:00 to 00:10:00."]')).not.toBeNull()
     await click('Add tag to list')
     expect(host.querySelector('.annotation-list')!.textContent).toContain('Self-reported sustained focus')
-    expect(host.querySelector('.evidence-unknown')).not.toBeNull()
+    expect(host.querySelector('.evidence-table')).toBeNull()
     vi.mocked(jsonRequest).mockRejectedValueOnce(new Error('Save failed'))
     await click('Save timeline tags')
     expect(host.querySelector('.annotation-list li')).not.toBeNull()

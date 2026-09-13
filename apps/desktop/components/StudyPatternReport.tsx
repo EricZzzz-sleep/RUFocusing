@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { jsonRequest } from '../src/api'
 import type { AnnotationKind, Reflection, SessionAnalysis, StudyAnnotation, StudySession } from '../src/types'
-import { duration, labels, timer } from '../src/types'
-import { annotationLabels, availabilityReasons, parseOffset } from '../src/study-patterns'
+import { duration, timer } from '../src/types'
+import { annotationLabels, parseOffset } from '../src/study-patterns'
 
 const emptyReflection: Reflection = { concentration: null, distraction: null, flow: null }
-const evidenceLabel = (state: string) => state === 'diagnostic' ? 'Diagnostic · excluded' : labels[state as keyof typeof labels]
 
 export default function StudyPatternReport({ session }: { session: StudySession }) {
   const [analysis, setAnalysis] = useState<SessionAnalysis | null>(null)
@@ -61,40 +60,14 @@ export default function StudyPatternReport({ session }: { session: StudySession 
   if (loadingError) return <section className="study-report"><p role="alert">{loadingError}</p><button type="button" className="button secondary" onClick={() => setRetry(value => value + 1)}>Retry study patterns</button></section>
   if (!analysis) return <p role="status">Loading study patterns…</p>
   const summary = analysis.summary
-  const metric = (value: number | null) => value === null ? 'N/A' : duration(value)
-  const rating = (value: number | null) => value === null ? 'N/A' : `${value} / 5`
-  const flow = summary.reflection.flow === null ? 'N/A' : summary.reflection.flow === 'yes' ? 'Yes' : summary.reflection.flow === 'no' ? 'No' : 'Unsure'
   const draftStart = parseOffset(start), draftEnd = parseOffset(end)
   const validPreview = draftStart !== null && draftEnd !== null && draftStart < draftEnd && draftEnd <= session.elapsed
   return <section className="study-report" aria-labelledby="study-report-title">
-    <h3 id="study-report-title">Study patterns & reflection</h3>
-    <div className="pattern-metrics">
-      <div><span>Observed · sustained at desk</span><strong>{summary.sustained_count === null ? 'N/A' : `${summary.sustained_count} ${summary.sustained_count === 1 ? 'period' : 'periods'}`}</strong><small>{metric(summary.sustained_seconds)} total · longest {metric(summary.longest_sustained)}</small></div>
-      <div><span>Observed · possible interruptions</span><strong>{summary.interruption_count === null ? 'N/A' : `${summary.interruption_count} ${summary.interruption_count === 1 ? 'episode' : 'episodes'}`}</strong><small>{metric(summary.interruption_seconds)} recorded away; cause unknown</small></div>
-      <div><span>Observed · presence coverage</span><strong>{summary.observation_coverage === null ? 'N/A' : `${Math.round(summary.observation_coverage * 100)}%`}</strong><small>Breaks and diagnostics excluded; unknown study time stays in the denominator.</small></div>
-      <div><span>Personal · saved ratings</span><strong>Concentration {rating(summary.reflection.concentration)}</strong><small>Distraction frequency {rating(summary.reflection.distraction)}<br />Self-reported flow: {flow}</small></div>
-    </div>
-    {summary.availability.reasons.map(reason => <p className="notice" key={reason}>{availabilityReasons[reason] ?? reason}</p>)}
-    <p className="muted">A sustained at-desk period is at least 10 uninterrupted minutes of recorded presence. This product default does not establish deep concentration. Away episodes indicate possible interruptions, without identifying their cause.</p>
-    <h4>Evidence timeline</h4>
-    <p className="muted">Recorded observations and personal tags are separate layers. Gaze movement, looking down, and reading paper are never automatically labeled distraction or flow.</p>
-    <div className="evidence-track" role="img" aria-label="Recorded presence timeline; exact times are in the evidence table below.">
-      {analysis.intervals.map((row, index) => <span key={index} className={`evidence-${row.state}`} style={{ width: `${session.elapsed ? (row.end - row.start) / session.elapsed * 100 : 0}%` }} />)}
-    </div>
-    <div className="tag-track" role="img" aria-label="Draft self-reported timeline tags; exact times are listed below.">
-      {annotations.map((row, index) => <span key={index} className={`tag-${row.kind}`} style={{ left: `${row.start / session.elapsed * 100}%`, width: `${(row.end - row.start) / session.elapsed * 100}%` }} />)}
-    </div>
-    <div className="evidence-legend"><span>Recorded:</span>{['present', 'away', 'unknown', 'break', 'diagnostic'].map(state => <span key={state}><i className={`evidence-${state}`} aria-hidden="true" />{evidenceLabel(state)}</span>)}</div>
-    <div className="evidence-legend"><span>Personal:</span>{Object.entries(annotationLabels).map(([key, label]) => <span key={key}><i className={`tag-${key}`} aria-hidden="true" />{label}</span>)}</div>
-    <details><summary>Recorded evidence and exclusion times</summary><div className="evidence-table" tabIndex={0} role="region" aria-label="Recorded evidence intervals">
-      <table><thead><tr><th>Start</th><th>End</th><th>Duration</th><th>Recorded evidence</th></tr></thead><tbody>
-        {analysis.intervals.map((row, index) => <tr key={index}><td>{timer(row.start)}</td><td>{timer(row.end)}</td><td>{duration(row.end - row.start)}</td><td>{evidenceLabel(row.state)}{analysis.sustained_periods.some(period => period.start === row.start && period.end === row.end) && ' · sustained at desk'}</td></tr>)}
-      </tbody></table>{!analysis.intervals.length && <p>No recorded time in this session.</p>}
-    </div>{analysis.exclusions.map(row => <p key={row.run_id}>{row.kind === 'calibration' ? 'Calibration' : 'Accuracy check'} excluded: {timer(row.start)}–{timer(row.end)}.</p>)}</details>
+    <h3 id="study-report-title">Your reflection</h3>
     <form className="reflection-form" onSubmit={event => { event.preventDefault(); void save('reflection') }}>
       <fieldset disabled={pending !== null}>
         <legend>Optional personal reflection</legend>
-        <p id="reflection-help" className="muted">Skip, edit, or clear any answer. Ratings describe your whole session, not individual minutes.</p>
+        <p id="reflection-help" className="muted">Optional. Edit or clear your answers anytime.</p>
         <div className="reflection-fields">
           <label>Concentration<select aria-label="Concentration" aria-describedby="reflection-help" value={reflection.concentration ?? ''} onChange={event => setReflection(value => ({ ...value, concentration: event.target.value ? Number(event.target.value) : null }))}>
             <option value="">Skipped / clear answer</option>{[1, 2, 3, 4, 5].map(value => <option value={value} key={value}>{value}{value === 1 ? ' — Very low' : value === 5 ? ' — Very high' : ''}</option>)}
@@ -106,7 +79,7 @@ export default function StudyPatternReport({ session }: { session: StudySession 
             <option value="">Skipped / clear answer</option><option value="yes">Yes</option><option value="no">No</option><option value="unsure">Unsure</option>
           </select></label>
         </div>
-        <p className="muted" id="flow-help">Did you feel absorbed and work smoothly? This is your reported experience, not a validated psychological scale or a camera assessment.</p>
+        <p className="muted" id="flow-help">Did you feel absorbed in your work?</p>
         <button className="button primary" type="submit">{pending === 'reflection' ? 'Saving reflection…' : 'Save reflection'}</button>
       </fieldset>
       {errors.reflection && <p role="alert">{errors.reflection}</p>}<p className="save-feedback" role="status">{messages.reflection}</p>
@@ -114,7 +87,7 @@ export default function StudyPatternReport({ session }: { session: StudySession 
     <form className="annotation-form" onSubmit={event => { event.preventDefault(); addTag() }}>
       <fieldset disabled={pending !== null}>
         <legend>Optional personal timeline tags</legend>
-        <p id="tag-help" className="muted">Use elapsed HH:MM:SS times, up to {timer(session.elapsed)}. Tags cannot overlap each other, breaks, or known diagnostics. You may tag unknown camera time; its observation remains unknown.</p>
+        <p id="tag-help" className="muted">Use HH:MM:SS, up to {timer(session.elapsed)}. Tags cannot overlap or include breaks or setup.</p>
         <div className="tag-fields">
           <label>Tag<select aria-label="Tag" value={kind} onChange={event => setKind(event.target.value as AnnotationKind)}>{Object.entries(annotationLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label>Start time<input ref={startInput} aria-describedby="tag-help" value={start} onChange={event => setStart(event.target.value)} placeholder="HH:MM:SS" /></label>

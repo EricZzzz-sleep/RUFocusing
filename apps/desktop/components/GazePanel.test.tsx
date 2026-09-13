@@ -45,7 +45,7 @@ describe('Gaze calibration and live feedback', () => {
       return current
     })
     await render()
-    await click('Calibrate gaze')
+    await click('Set up gaze')
     const heading = document.createElement('h1'); heading.tabIndex = -1; document.body.append(heading); heading.focus()
     await render(true, false)
     expect(host.querySelector('dialog')).toBeNull()
@@ -54,14 +54,18 @@ describe('Gaze calibration and live feedback', () => {
     heading.remove()
   })
 
-  it('only shows a fresh valid calibrated coordinate and clears it during tracking loss', async () => {
+  it('shows a compact ready status and clears it during service loss', async () => {
     vi.mocked(gazeRequest).mockResolvedValue(ready())
     await render()
-    expect(host.querySelector<HTMLElement>('.gaze-point')?.style.left).toBe('20%')
+    expect(host.textContent).toContain('Gaze ready')
+    expect(host.querySelector('.gaze-map')).toBeNull()
+    expect(host.textContent).not.toContain('Gaze reliability')
     vi.mocked(gazeRequest).mockImplementation(() => new Promise(() => {}))
     await act(async () => vi.advanceTimersByTimeAsync(900))
     expect(host.querySelector('.gaze-point')).toBeNull()
+    expect(host.textContent).toContain('Connecting gaze')
     await render(false)
+    expect(host.textContent).toContain('Camera off')
     expect(host.querySelector('button')?.disabled).toBe(true)
   })
 
@@ -70,7 +74,7 @@ describe('Gaze calibration and live feedback', () => {
     vi.mocked(gazeRequest).mockResolvedValue(state)
     await render()
     expect(host.querySelector('.gaze-point')).toBeNull()
-    expect(host.textContent).toContain('did not meet the accuracy checks')
+    expect(host.textContent).toContain('Set up gaze')
   })
 
   it('requests fullscreen, advances all server-defined targets, and completes calibration', async () => {
@@ -88,13 +92,13 @@ describe('Gaze calibration and live feedback', () => {
       return current
     })
     await render()
-    await click('Calibrate gaze')
+    await click('Set up gaze')
     expect(document.documentElement.requestFullscreen).toHaveBeenCalledOnce()
     for (let index = 0; index < 15; index++) await act(async () => vi.advanceTimersByTimeAsync(250))
     expect(vi.mocked(gazeRequest).mock.calls.filter(([action]) => action === 'target')).toHaveLength(13)
     expect(vi.mocked(gazeRequest).mock.calls.some(([action]) => action === 'complete')).toBe(true)
     expect(host.querySelector('.calibration-screen')).toBeNull()
-    expect(host.textContent).toContain('Recalibrate gaze')
+    expect(host.textContent).toContain('Redo setup')
     expect(document.exitFullscreen).toHaveBeenCalled()
   })
 
@@ -102,8 +106,8 @@ describe('Gaze calibration and live feedback', () => {
     let resolveStart!: (state: GazeState) => void
     vi.mocked(gazeRequest).mockImplementation(action => action === 'start' ? new Promise(resolve => { resolveStart = resolve }) : Promise.resolve(initial()))
     await render()
-    await click('Calibrate gaze')
-    await click('Cancel calibration')
+    await click('Set up gaze')
+    await click('Cancel setup')
     const started = initial(); started.calibration.id = 'pending-id'; started.calibration.status = 'collecting'
     await act(async () => resolveStart(started))
     expect(host.querySelector('.calibration-screen')).toBeNull()
@@ -119,7 +123,7 @@ describe('Gaze calibration and live feedback', () => {
       return current
     })
     await render()
-    await click('Calibrate gaze')
+    await click('Set up gaze')
     expect(host.textContent).toContain('Target request failed')
     expect([...host.querySelectorAll('button')].some(button => button.textContent === 'Retry target')).toBe(true)
     const [cancelButton, retryButton] = host.querySelectorAll<HTMLButtonElement>('dialog button')
@@ -128,7 +132,30 @@ describe('Gaze calibration and live feedback', () => {
     expect(document.activeElement).toBe(cancelButton)
     cancelButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }))
     expect(document.activeElement).toBe(retryButton)
-    await click('Cancel calibration')
+    await click('Cancel setup')
     expect(host.querySelector('.calibration-screen')).toBeNull()
   })
+  it('confirms the display on reload and resets saved setup explicitly', async () => {
+    const current = ready()
+    current.calibration.display = { width: 1440, height: 900, device_pixel_ratio: 2 }
+    vi.mocked(gazeRequest).mockImplementation(async action => action === 'reset' ? initial() : current)
+    await render()
+    expect(vi.mocked(gazeRequest).mock.calls.some(([action]) => action === 'display')).toBe(true)
+    await act(async () => vi.advanceTimersByTimeAsync(250))
+    expect(host.textContent).toContain('Gaze ready')
+    await click('Reset gaze setup')
+    expect(vi.mocked(gazeRequest).mock.calls).toContainEqual(['reset', {}])
+    expect(host.textContent).toContain('Set up gaze')
+    expect(host.querySelector('.gaze-map')).toBeNull()
+  })
+
+  it('shows a short update action for an incompatible setup', async () => {
+    const current = ready()
+    current.observation = { ...current.observation, valid: false, reason: 'camera_config_changed_recalibrate' }
+    vi.mocked(gazeRequest).mockResolvedValue(current)
+    await render()
+    expect(host.textContent).toContain('Setup needs updating')
+    expect(host.textContent).toContain('Redo setup')
+  })
+
 })

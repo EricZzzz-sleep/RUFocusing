@@ -4,15 +4,13 @@ RUFocusing estimates a gaze point on **one calibrated display**. It detects face
 
 ## Use
 
-1. Restart an older running app with Ctrl+C in its launching terminal, then `make run`. The launcher checks API version 3 and will not reuse an older backend. The SQLite migration preserves existing sessions; older app versions cannot reopen the upgraded database.
-2. Open the **Record** tab, enable webcam observations, and check camera framing. In **Screen gaze**, select **Calibrate gaze**. Calibration uses fullscreen and requires a desktop browser that supports it.
-3. Look at each target while keeping your head comfortably still and both eyes visible. There are nine training targets and four separate accuracy checks. Each target discards the first 500 ms and requires at least ten unique usable frames spanning two seconds. A target times out after ten seconds and can be retried.
-4. After successful validation, the small display map shows the estimated point. It is normalized to the calibrated display, not to the study webpage's current window. Gaze coverage and region durations appear in saved reports.
-5. Recalibrate when asked, or manually after moving to another monitor, moving the camera, changing zoom/display configuration, or changing seating position. This version supports one fixed display; matching-resolution monitors cannot always be distinguished by browser geometry alone.
+1. Run `make run`; the launcher requires API version 5. Existing databases upgrade transactionally to schema version 5.
+2. On Record, enable **Use camera** in **Camera & gaze**, then select **Set up gaze**.
+3. Follow the fullscreen targets. The interface shows simple progress and an actionable retry if needed.
+4. Successful setup is saved on this device and reused across sessions and restarts. Use **Redo setup** or **Setup options → Reset gaze setup** when needed.
 
-Escape, Cancel calibration, leaving fullscreen, switching to Analysis, or hiding the calibration browser tab cancels collection. Backend collection expires after three seconds without the owning calibration's heartbeat. Ordinary state polling cannot keep abandoned collection alive.
+The live interface shows a compact gaze status; maps, quality numbers, reliability controls, and diagnostic reports are developer-only. Camera/display mismatches and seating changes suppress estimates until compatible observations resume or setup is redone. Temporary loss, preview closure, camera toggles, and breaks do not erase the saved profile. Matching-resolution monitors cannot always be distinguished by browser geometry; redo setup after switching physical displays or cameras when necessary.
 
-Calibration can transfer from an open setup preview into the immediately following session. Closing or abandoning setup clears it. New sessions require new calibration. Routine breaks and observation toggles retain validated calibration; camera failure/retry, camera index/resolution changes, display geometry changes, and sustained seating changes invalidate it. Camera-off time and breaks never show a point.
 
 ## Model and quality gates
 
@@ -24,9 +22,9 @@ Training targets use the Cartesian product of 10%, 50%, and 90% display coordina
 
 Versioned quality heuristics reject clipped faces, face widths below 12% of the frame, eye widths below eight pixels, eye openness below 0.12 eye widths, invalid or inconsistent eye geometry, and absolute pitch/yaw/roll above 40 degrees. These geometric checks cannot detect every occlusion or landmark error.
 
-Relative to calibration, face-center displacement above 10% of a frame dimension, scale outside 0.75–1.25, or pitch/yaw outside the training range plus ten degrees immediately hides the point. Sustained departure for two seconds invalidates calibration. Invalid frames, blinks, multiple faces, and estimates outside [0,1] clear the point and smoothing. Outside estimates are not clamped to screen edges and do not prove that a person is looking away.
+Relative to calibration, face-center displacement above 10% of a frame dimension, scale outside 0.75–1.25, or pitch/yaw outside the training range plus ten degrees immediately hides the point. Sustained departure for two seconds prompts a return to the setup position or a new setup, while preserving the saved model. Invalid frames, blinks, multiple faces, and estimates outside [0,1] clear the point and smoothing. Outside estimates are not clamped to screen edges and do not prove that a person is looking away.
 
-Valid points use a 250 ms time-constant exponential smoother. Observations older than 750 ms are unavailable, independently of the existing two-second camera freshness threshold. The frontend also hides points when its live response is stale or slow. Live gaze sampling targets approximately five frames/second; checkpoints remain approximately one second. Gaze intervals use one checkpoint timestamp, apply valid changes prospectively, and mark missing evidence/scheduling gaps unknown.
+Valid points use a 250 ms time-constant exponential smoother. Observations older than 750 ms are unavailable, independently of the existing two-second camera freshness threshold. The frontend clears its ready status when the service response is stale or slow. Live gaze sampling targets approximately five frames/second; checkpoints remain approximately one second. Gaze intervals use one checkpoint timestamp, apply valid changes prospectively, and mark missing evidence/scheduling gaps unknown.
 
 ## API and persistence
 
@@ -34,8 +32,8 @@ Valid points use a 250 ms time-constant exponential smoother. Observations older
 - `POST /api/gaze/calibration/start`: `{ "display": { "width": 1440, "height": 900, "device_pixel_ratio": 2 } }`. The camera must already be enabled and ready.
 - `POST /api/gaze/calibration/target`: `{ "calibration_id": "…", "target_index": 0 }`. Targets must be collected in order. Duplicate starts of the running target do not restart it.
 - `POST /api/gaze/calibration/complete`: `{ "calibration_id": "…" }`. All thirteen targets must have valid samples.
-- `POST /api/gaze/calibration/reset`: `{ "calibration_id": "…" }` cancels/clears the current calibration; an old identifier cannot clear a newer one.
-- `POST /api/gaze/calibration/display`: `{ "display": { … } }` invalidates calibration when display geometry differs. This additional endpoint supports window/display-change checks.
+- `POST /api/gaze/calibration/reset`: `{ "calibration_id": "…" }` cancels the matching attempt and restores the saved profile; an old identifier cannot clear a newer one. An empty body `{}` explicitly forgets the device profile without deleting historical models.
+- `POST /api/gaze/calibration/display`: `{ "display": { … } }` confirms display compatibility and suppresses estimates while display geometry differs. This additional endpoint supports window/display-change checks.
 - `GET /api/sessions/{id}/gaze` returns gaze intervals, summary, and validation metadata for accepted calibrations. Model coefficients are not sent to the frontend.
 
 All POSTs retain JSON, `X-RUFocusing: 1`, loopback/origin checks, and the 4 KiB request limit. Camera/session commands share the controller lock with calibration commands.
@@ -44,7 +42,7 @@ Schema version 2 introduced separate `calibrations`, `gaze_observations`, and `g
 
 ## Validation record and physical acceptance
 
-Automated tests cover geometry/aspect ratio, rejected frames, target timing/duplicates, calibration fitting, held-out failure, smoothing, stale points, seating invalidation, controller lifecycle, real-clock interval continuity, transactional migration rollback, API validation, and frontend completion/cancellation/error behavior.
+Automated tests cover geometry/aspect ratio, rejected frames, target timing/duplicates, calibration fitting, held-out failure, smoothing, stale points, seating compatibility, controller lifecycle, real-clock interval continuity, transactional migration rollback, API validation, and frontend completion/cancellation/error behavior.
 
 The real pinned MediaPipe model has also been exercised on a blank frame (zero faces) and the public `business-person.png` sample from [Google's example notebook](https://github.com/google-ai-edge/mediapipe-samples/tree/main/examples/face_landmarker/python) (one face, finite pose, usable compact eye features). This checks model integration, not physical gaze accuracy or consented user validation.
 
@@ -66,4 +64,4 @@ Desktop and mobile layouts are checked for overflow at 320, 375, 768, and 1440 p
 
 Use only participating users who agree to the test. Do not treat a single passing calibration as proof of performance across lighting, eyewear, or users. Record failures as well as passes and keep estimates suppressed when validation fails.
 
-The schema now upgrades to version 3 for independent accuracy checks, trial durations, and failed/cancelled calibration attempts. See [gaze reliability diagnostics and physical acceptance](gaze-reliability.md).
+Schema version 5 adds the independent `gaze_profile` and many-to-many `calibration_sessions` tables. Profile and historical model writes commit atomically. Restored models require a matching model version, finite parameters, accepted validation, display confirmation, and fresh compatible camera observations. Historical calibration models are not automatically promoted. Schema version 3 introduced independent accuracy checks, trial durations, and failed/cancelled attempts. See [gaze reliability diagnostics and physical acceptance](gaze-reliability.md).

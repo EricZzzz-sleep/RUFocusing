@@ -103,6 +103,7 @@ class GazeTracker:
         self.reason = reason
         self.identifier = None
         self.display = None
+        self.display_confirmed = False
         self.model = None
         self.validation = None
         self.samples = {}
@@ -120,6 +121,42 @@ class GazeTracker:
         self.latest = GazeObservation(0, reason=reason)
         self.smoothed = None
 
+    def restore(self, record):
+        """Load only a compatible, finite accepted model; never revive a live point."""
+        try:
+            if record['model_version'] != MODEL_VERSION or tuple(record['features']) != FEATURE_NAMES:
+                return False
+            validation = record['validation']
+            if validation['accepted'] is not True or not (0 <= validation['median_error'] <= .1 and 0 <= validation['p90_error'] <= .2):
+                return False
+            display = display_geometry(record['display'])
+            shapes = {'mean': (9,), 'scale': (9,), 'coefficients': (10, 2), 'geometry': (3,), 'pose_min': (2,), 'pose_max': (2,)}
+            parameters = {key: np.asarray(record['parameters'][key], dtype=float) for key in shapes}
+            if any(value.shape != shapes[key] or not np.isfinite(value).all() for key, value in parameters.items()):
+                return False
+            if np.any(parameters['scale'] <= 0) or parameters['geometry'][2] <= 0 or np.any(parameters['pose_min'] > parameters['pose_max']):
+                return False
+            camera = record['camera_config']
+            if camera is not None and (len(camera) != 3 or any(type(v) is not int for v in camera) or camera[0] < 0 or min(camera[1:]) <= 0):
+                return False
+            if not isinstance(record['id'], str) or not record['id']:
+                return False
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return False
+        self.reset('waiting_for_display')
+        self.identifier = record['id']
+        self.model = parameters
+        self.display = display
+        self.camera_config = tuple(camera) if camera is not None else None
+        self.validation = dict(validation)
+        self.status = 'ready'
+        return True
+
+    def confirm_display(self, geometry, now):
+        self.display_confirmed = geometry == self.display
+        self.reason = 'estimated' if self.display_confirmed else 'display_changed_recalibrate'
+        self.clear_point(now, 'waiting_for_frame' if self.display_confirmed else 'display_changed_recalibrate')
+
     def clear_point(self, now, reason):
         self.latest = GazeObservation(now, reason=reason, calibration_id=self.identifier)
         self.smoothed = None
@@ -128,6 +165,7 @@ class GazeTracker:
         display = display_geometry(display)
         self.reset()
         self.display = display
+        self.display_confirmed = True
         self.identifier = str(uuid.uuid4())
         self.status = 'collecting'
         self.reason = 'calibration_in_progress'
@@ -160,11 +198,17 @@ class GazeTracker:
 
     def update(self, observation: Observation, now):
         self._deadlines(now)
-        if observation.camera_status == 'unavailable' and self.status != 'uncalibrated':
-            self.reset('camera_failed_recalibrate')
+        if observation.camera_status == 'unavailable':
+            if self.status in ('collecting', 'validating'):
+                self.reset('calibration_interrupted')
+            self.clear_point(now, 'camera_unavailable')
+            return
         if observation.available and observation.camera_config is not None:
             if self.camera_config is not None and observation.camera_config != self.camera_config:
-                self.reset('camera_config_changed_recalibrate')
+                if self.status in ('collecting', 'validating'):
+                    self.reset('camera_config_changed_recalibrate')
+                self.clear_point(now, 'camera_config_changed_recalibrate')
+                return
             if self.status in ('collecting', 'validating') and self.camera_config is None:
                 self.camera_config = observation.camera_config
         self.quality = observation.gaze_quality
@@ -193,6 +237,12 @@ class GazeTracker:
         if self.status != 'ready':
             self.clear_point(now, self.reason)
             return
+        if not self.display_confirmed:
+            self.clear_point(now, 'display_changed_recalibrate' if self.reason == 'display_changed_recalibrate' else 'waiting_for_display')
+            return
+        if self.camera_config is not None and observation.camera_config is None:
+            self.clear_point(now, 'waiting_for_frame')
+            return
         model = self.model
         geometry_bad = (np.any(np.abs(values[6:8] - model['geometry'][:2]) > .1)
                         or not .75 <= values[8] / model['geometry'][2] <= 1.25
@@ -203,7 +253,7 @@ class GazeTracker:
                 self.geometry_since = now
             self.clear_point(now, 'seating_changed')
             if now - self.geometry_since >= 2:
-                self.reset('seating_changed_recalibrate')
+                self.clear_point(now, 'seating_changed_recalibrate')
             return
         self.geometry_since = None
         point = self._predict(values)

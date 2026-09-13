@@ -166,7 +166,7 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(tracker.latest.reason, 'outside_calibrated_area')
         self.assertIsNone(tracker.latest.x)
 
-    def test_sustained_geometry_change_and_camera_failure_invalidate(self):
+    def test_geometry_change_and_camera_failure_suspend_without_forgetting(self):
         tracker = GazeTracker()
         now = calibrate(tracker)
         bad = list(features())
@@ -174,11 +174,14 @@ class CalibrationTests(unittest.TestCase):
         for delta in [0, .5, 1, 1.5, 2.1]:
             tracker.update(replace(observation(now + delta), gaze_features=tuple(bad)), now + delta)
             self.assertFalse(tracker.latest.valid)
-        self.assertEqual(tracker.status, 'uncalibrated')
-        self.assertEqual(tracker.reason, 'seating_changed_recalibrate')
+        self.assertEqual(tracker.status, 'ready')
+        self.assertEqual(tracker.latest.reason, 'seating_changed_recalibrate')
+        tracker.update(observation(now + 3), now + 3)
+        self.assertTrue(tracker.latest.valid)
         now = calibrate(tracker, now + 5)
         tracker.update(Observation(now, camera_status='unavailable'), now)
-        self.assertEqual(tracker.status, 'uncalibrated')
+        self.assertEqual(tracker.status, 'ready')
+        self.assertFalse(tracker.latest.valid)
 
 
 class GazeStorageTests(unittest.TestCase):
@@ -200,7 +203,7 @@ class GazeStorageTests(unittest.TestCase):
     def test_migration_preserves_populated_v1_and_reopens(self):
         self.make_legacy()
         store = Store(self.path)
-        self.assertEqual(store.connection.execute('PRAGMA user_version').fetchone()[0], 4)
+        self.assertEqual(store.connection.execute('PRAGMA user_version').fetchone()[0], 5)
         old = store.get('old')
         self.assertEqual(old['status'], 'interrupted')
         self.assertEqual(old['elapsed'], 10)
@@ -259,7 +262,7 @@ class GazeStorageTests(unittest.TestCase):
             self.assertEqual(len(details['calibrations']), 1)
             self.assertNotIn('parameters', details['calibrations'][0])
             controller.start('New session', 'Math', True)
-            self.assertEqual(controller.gaze.status, 'uncalibrated')
+            self.assertEqual(controller.gaze.status, 'ready')
         finally:
             controller.close()
 
@@ -297,7 +300,7 @@ class GazeStorageTests(unittest.TestCase):
             self.assertEqual(controller.gaze.identifier, calibration_id)
             controller.calibration_action('display', {'display': {**DISPLAY, 'width': 1920}})
             self.assertEqual(controller.gaze.reason, 'display_changed_recalibrate')
-            self.assertEqual(controller.gaze.status, 'uncalibrated')
+            self.assertEqual(controller.gaze.status, 'ready')
         finally:
             controller.close()
 

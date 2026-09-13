@@ -3,7 +3,14 @@ export type CameraStatus = 'off' | 'starting' | 'ready' | 'unavailable'
 export const studyModes = ['Math', 'Coding', 'Reading', 'Lecture'] as const
 export const cameraStatusLabels: Record<CameraStatus, string> = { off: 'Off', starting: 'Starting', ready: 'Ready', unavailable: 'Unavailable' }
 export interface Interval { start: number; end: number; state: Presence }
+export type StudyPeriodState = 'deep' | 'normal' | 'distracted' | 'break' | 'diagnostic' | 'unknown'
+export interface StudyPeriods {
+  available: boolean
+  intervals: { start: number; end: number; state: StudyPeriodState }[]
+  totals: Record<'deep' | 'normal' | 'distracted', number>
+}
 export interface StudySession {
+  study_periods?: StudyPeriods
   id: string; task: string; mode: string; started_at: string; ended_at: string | null
   status: 'running' | 'break' | 'completed' | 'interrupted'
   camera_enabled: boolean; elapsed: number; timeline: Interval[]
@@ -94,6 +101,7 @@ export interface AnalysisSummary {
   reflection: Reflection
 }
 export interface SessionAnalysis {
+  study_periods?: StudyPeriods
   session_id: string; summary: AnalysisSummary; threshold_seconds: number
   intervals: { start: number; end: number; state: Presence | 'diagnostic' }[]
   sustained_periods: Interval[]; interruptions: Interval[]

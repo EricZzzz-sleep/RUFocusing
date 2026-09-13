@@ -13,14 +13,14 @@ class Store:
         self.connection = sqlite3.connect(path, check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
         version = self.connection.execute("PRAGMA user_version").fetchone()[0]
-        if version > 4:
+        if version > 5:
             self.connection.close()
             raise RuntimeError("This database was created by a newer application version.")
         self.connection.execute('PRAGMA foreign_keys = ON')
-        if version < 4:
+        if version < 5:
             base = Path(__file__).with_name('schema.sql').read_text() if version == 0 else ''
             migration = '\n'.join(Path(__file__).with_name(name).read_text() for target, name in
-                                  ((2, 'gaze_v2.sql'), (3, 'diagnostics_v3.sql'), (4, 'study_patterns_v4.sql')) if version < target)
+                                  ((2, 'gaze_v2.sql'), (3, 'diagnostics_v3.sql'), (4, 'study_patterns_v4.sql'), (5, 'gaze_profile_v5.sql')) if version < target)
             try:
                 self.connection.executescript('BEGIN IMMEDIATE;\n' + base + migration + '\nCOMMIT;')
             except Exception:
@@ -159,9 +159,34 @@ class Store:
             self.connection.execute('INSERT INTO calibrations (id,session_id,created_at,model_version,model_json) VALUES (?,?,?,?,?)',
                 (record['id'], session_id, created_at, record['model_version'], json.dumps(record, allow_nan=False)))
 
+    def save_gaze_setup(self, record, session_id, created_at):
+        # Profile and historical model must commit together.
+        encoded = json.dumps(record, allow_nan=False)
+        with self.connection:
+            self.connection.execute('INSERT INTO calibrations (id,session_id,created_at,model_version,model_json) VALUES (?,?,?,?,?)',
+                (record['id'], None, created_at, record['model_version'], encoded))
+            if session_id is not None:
+                self.connection.execute('INSERT INTO calibration_sessions VALUES (?,?)', (record['id'], session_id))
+            self.connection.execute('INSERT INTO gaze_profile VALUES (1,?,?) ON CONFLICT(singleton) DO UPDATE SET model_json=excluded.model_json,saved_at=excluded.saved_at',
+                                    (encoded, created_at))
+
+    def gaze_profile(self):
+        row = self.connection.execute('SELECT model_json FROM gaze_profile WHERE singleton=1').fetchone()
+        try:
+            profile = json.loads(row[0]) if row else None
+            if not isinstance(profile, dict) or not isinstance(profile.get('id'), str):
+                return None
+            return profile if self.connection.execute('SELECT 1 FROM calibrations WHERE id=?', (profile['id'],)).fetchone() else None
+        except (ValueError, TypeError):
+            return None
+
+    def reset_gaze_profile(self):
+        with self.connection:
+            self.connection.execute('DELETE FROM gaze_profile')
+
     def attach_calibration(self, identifier, session_id):
         with self.connection:
-            self.connection.execute('UPDATE calibrations SET session_id=? WHERE id=? AND session_id IS NULL', (session_id, identifier))
+            self.connection.execute('INSERT OR IGNORE INTO calibration_sessions VALUES (?,?)', (identifier, session_id))
 
     def gaze_summary(self, identifier):
         rows = self.connection.execute('SELECT state,SUM(end-start) AS duration FROM gaze_intervals WHERE session_id=? GROUP BY state', (identifier,)).fetchall()
@@ -176,7 +201,7 @@ class Store:
         if not self.connection.execute('SELECT 1 FROM sessions WHERE id=?', (identifier,)).fetchone():
             return None
         calibrations = []
-        for row in self.connection.execute('SELECT model_json FROM calibrations WHERE session_id=?', (identifier,)):
+        for row in self.connection.execute('SELECT model_json FROM calibrations WHERE session_id=? OR id IN (SELECT calibration_id FROM calibration_sessions WHERE session_id=?) OR id IN (SELECT calibration_id FROM gaze_intervals WHERE session_id=? UNION SELECT calibration_id FROM gaze_observations WHERE session_id=?)', (identifier, identifier, identifier, identifier)):
             record = json.loads(row['model_json'])
             calibrations.append({key: record[key] for key in ('id', 'model_version', 'display', 'validation')})
         return {'session_id': identifier, 'summary': self.gaze_summary(identifier),
@@ -200,8 +225,11 @@ class Store:
         session['timeline'] = [dict(item) for item in self.connection.execute("SELECT start,end,state FROM timeline WHERE session_id=? ORDER BY start", (identifier,))]
         session.update(summarize_timeline(session['timeline']))
         session['gaze_summary'] = self.gaze_summary(identifier)
-        if include_analysis and session['status'] in ('completed', 'interrupted'):
-            session['analysis_summary'] = self._analysis(session)['summary']
+        if include_analysis:
+            analysis = self._analysis(session)
+            session['study_periods'] = analysis['study_periods']
+            if session['status'] in ('completed', 'interrupted'):
+                session['analysis_summary'] = analysis['summary']
         return session
 
     def history(self):

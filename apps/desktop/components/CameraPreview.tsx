@@ -45,7 +45,7 @@ export default function CameraPreview({ message, status, inSession, onClose, onR
   function releaseDrag() {
     const id = drag.current?.id
     drag.current = null
-    if (id != null && handle.current?.hasPointerCapture?.(id)) handle.current.releasePointerCapture(id)
+    if (id != null && panel.current?.hasPointerCapture?.(id)) panel.current.releasePointerCapture(id)
     setDragging(false)
   }
   useLayoutEffect(() => {
@@ -67,7 +67,7 @@ export default function CameraPreview({ message, status, inSession, onClose, onR
       window.visualViewport?.removeEventListener('scroll', resize)
       const id = drag.current?.id
       drag.current = null
-      if (id != null && handle.current?.hasPointerCapture?.(id)) handle.current.releasePointerCapture(id)
+      if (id != null && panel.current?.hasPointerCapture?.(id)) panel.current.releasePointerCapture(id)
     }
   }, [])
   useEffect(() => {
@@ -113,10 +113,11 @@ export default function CameraPreview({ message, status, inSession, onClose, onR
   }, [])
 
   const displayStatus = frameError ? 'unavailable' : status
-  return <section ref={panel} className={`camera-preview${dragging ? ' is-dragging' : ''}`} style={{ left: location?.x, top: location?.y, right: location ? 'auto' : undefined, bottom: location ? 'auto' : undefined, width: Math.min(390, viewport.width - 32), maxHeight: viewport.height - 32 }} role="dialog" aria-modal="false" aria-labelledby="preview-title" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); onClose() } }}>
-    <div className="preview-heading"><button ref={handle} type="button" className="preview-drag-handle" aria-label="Move camera preview" aria-describedby="preview-move-help"
+  return <section ref={panel} className={`camera-preview${dragging ? ' is-dragging' : ''}`} style={{ left: location?.x, top: location?.y, right: location ? 'auto' : undefined, bottom: location ? 'auto' : undefined, width: Math.min(390, viewport.width - 32), maxHeight: viewport.height - 32 }} role="dialog" aria-modal="false" aria-labelledby="preview-title"
       onPointerDown={event => {
-        if (!event.isPrimary || event.button !== 0) return
+        const target = event.target as HTMLElement
+        if (!event.isPrimary || event.button !== 0 || drag.current || !target.closest('.preview-heading, .preview-image-area') || target.closest('button:not(.preview-drag-handle), input, a')) return
+        event.preventDefault()
         const rect = panel.current!.getBoundingClientRect()
         drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, origin: { x: rect.left, y: rect.top } }
         event.currentTarget.setPointerCapture(event.pointerId); setDragging(true)
@@ -128,6 +129,8 @@ export default function CameraPreview({ message, status, inSession, onClose, onR
       onPointerUp={event => { if (drag.current?.id === event.pointerId) releaseDrag() }}
       onPointerCancel={event => { if (drag.current?.id === event.pointerId) releaseDrag() }}
       onLostPointerCapture={() => { drag.current = null; setDragging(false) }}
+      onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); onClose() } }}>
+    <div className="preview-heading" title="Drag to move"><button ref={handle} type="button" className="preview-drag-handle" aria-label="Move camera preview" aria-describedby="preview-move-help"
       onKeyDown={event => {
         const offsets: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
         if (event.key === 'Home') { event.preventDefault(); releaseDrag(); move(null); return }
@@ -137,10 +140,10 @@ export default function CameraPreview({ message, status, inSession, onClose, onR
         const rect = panel.current!.getBoundingClientRect(), step = event.shiftKey ? 40 : 10
         move({ x: rect.left + offset[0] * step, y: rect.top + offset[1] * step })
       }}><span aria-hidden="true">⠿</span></button><div><span className="eyebrow">PREVIEW · NOT SAVED</span><h2 id="preview-title">Camera preview</h2></div><button ref={closeButton} type="button" className="icon-button" aria-label="Close camera preview" onClick={onClose}>×</button></div>
-    <p id="preview-move-help" className="sr-only">Drag to move. Or use arrow keys to move 10 pixels, Shift and arrows for 40 pixels, and Home to reset position.</p>
+    <p id="preview-move-help" className="sr-only">Drag the title bar or camera image to move. Or use arrow keys to move 10 pixels, Shift and arrows for 40 pixels, and Home to reset position.</p>
     <div className="preview-status"><span className={`camera-status ${displayStatus}`} role="status">Camera: {cameraStatusLabels[displayStatus]}</span></div>
-    <div className="preview-image-area">
-      {image && displayStatus === 'ready' ? <img src={image} alt="Live view from the same webcam used for face and head-pose detection" className={mirrored ? 'mirrored' : ''} /> : <div className="preview-placeholder"><span aria-hidden="true">◎</span><p>{frameError || message || 'Starting your camera…'}</p></div>}
+    <div className="preview-image-area" title="Drag to move">
+      {image && displayStatus === 'ready' ? <img draggable={false} src={image} alt="Live view from the same webcam used for face and head-pose detection" className={mirrored ? 'mirrored' : ''} /> : <div className="preview-placeholder"><span aria-hidden="true">◎</span><p>{frameError || message || 'Starting your camera…'}</p></div>}
     </div>
     <div className="preview-caption"><p>Adjust your camera or position until the view looks right.</p><div className="preview-options"><label className="checkbox-label"><input type="checkbox" checked={mirrored} onChange={event => setMirrored(event.target.checked)} />Mirror preview</label><button type="button" className="text-button" onClick={onRetry} disabled={busy || status === 'starting'}>{status === 'starting' ? 'Starting camera…' : 'Retry camera'}</button></div><span>{inSession ? 'Your timer keeps running through camera errors. Closing this preview keeps session tracking on.' : 'Preview only. Your session timer has not started.'}</span></div>
   </section>

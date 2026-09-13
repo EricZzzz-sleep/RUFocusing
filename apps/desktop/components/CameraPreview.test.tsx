@@ -49,8 +49,8 @@ describe('Camera preview recovery', () => {
     const panel = host.querySelector<HTMLElement>('.camera-preview')!
     return { x: parseFloat(panel.style.left), y: parseFloat(panel.style.top) }
   }
-  async function pointer(type: string, x: number, y: number, pointerType = 'mouse') {
-    const handle = host.querySelector<HTMLButtonElement>('.preview-drag-handle')!
+  async function pointer(type: string, x: number, y: number, pointerType = 'mouse', source = '.preview-drag-handle') {
+    const handle = host.querySelector<HTMLElement>(source)!
     const event = new MouseEvent(type, { clientX: x, clientY: y, button: 0, bubbles: true })
     Object.defineProperties(event, { pointerId: { value: 1 }, isPrimary: { value: true }, pointerType: { value: pointerType } })
     await act(async () => handle.dispatchEvent(event))
@@ -73,21 +73,22 @@ describe('Camera preview recovery', () => {
     expect(fetchFrame).toHaveBeenCalledOnce()
   })
 
-  it.each(['mouse', 'touch', 'pen'])('drags with %s and ends movement on cancellation', async pointerType => {
+  it.each(['mouse', 'touch', 'pen'].flatMap(pointerType => ['.preview-drag-handle', '#preview-title', '.preview-image-area'].map(source => ({ pointerType, source }))))('drags $source with $pointerType and ends movement on cancellation', async ({ pointerType, source }) => {
     geometry()
     await render('ready')
     const handle = host.querySelector<HTMLButtonElement>('.preview-drag-handle')!
-    handle.setPointerCapture = vi.fn()
-    handle.hasPointerCapture = vi.fn(() => true)
-    handle.releasePointerCapture = vi.fn()
-    await pointer('pointerdown', 600, 390, pointerType)
+    const panel = host.querySelector<HTMLElement>('.camera-preview')!
+    panel.setPointerCapture = vi.fn()
+    panel.hasPointerCapture = vi.fn(() => true)
+    panel.releasePointerCapture = vi.fn()
+    await pointer('pointerdown', 600, 390, pointerType, source)
     await pointer('pointermove', -1000, -1000, pointerType)
     expect(location()).toEqual({ x: 16, y: 16 })
-    expect(handle.setPointerCapture).toHaveBeenCalledWith(1)
+    expect(panel.setPointerCapture).toHaveBeenCalledWith(1)
     await pointer('pointercancel', 0, 0, pointerType)
     await pointer('pointermove', 100, 100, pointerType)
     expect(location()).toEqual({ x: 16, y: 16 })
-    expect(handle.releasePointerCapture).toHaveBeenCalledWith(1)
+    expect(panel.releasePointerCapture).toHaveBeenCalledWith(1)
     expect(fetchFrame).toHaveBeenCalledOnce()
     const mirror = host.querySelector<HTMLInputElement>('input[type="checkbox"]')!
     await act(async () => mirror.click())

@@ -166,7 +166,7 @@ class MigrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'db'; self.make_v3(path)
             store = Store(path)
-            self.assertEqual(store.connection.execute('PRAGMA user_version').fetchone()[0], 4)
+            self.assertEqual(store.connection.execute('PRAGMA user_version').fetchone()[0], 5)
             self.assertEqual(store.analysis('clean')['summary']['sustained_seconds'], 1200)
             self.assertEqual(store.analysis('old')['summary']['availability']['reasons'], ['historical_diagnostic_boundaries_missing'])
             self.assertIn('upgrade_during_session', store.analysis('active')['summary']['availability']['reasons'])
@@ -251,6 +251,6 @@ class LifecycleTests(unittest.TestCase):
             result = send(prefix + '/annotations', {'annotations': [{'start': 0, 'end': 1, 'kind': 'focused'}]})
             self.assertEqual(send(prefix + '/analysis'), result)
             self.assertEqual(send('/api/state')['history'][0]['analysis_summary'], result['summary'])
-            self.assertEqual(send('/api/health')['api_version'], 4)
+            self.assertEqual(send('/api/health')['api_version'], 5)
         finally:
             server.shutdown(); server.server_close(); thread.join()

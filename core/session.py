@@ -27,6 +27,8 @@ class SessionController:
         self.lock = threading.RLock()
         self.detector = AwayDetector()
         self.gaze = GazeTracker()
+        self.current_display = None
+        self._restore_gaze_setup()
         self.diagnostics = Diagnostics()
         self.last_diagnostic_save = -float('inf')
         self.diagnostic_error = None
@@ -48,6 +50,20 @@ class SessionController:
         self.preview_until = 0.0
         self.stop_event = threading.Event()
         self.thread = None
+
+    def _restore_gaze_setup(self):
+        profile = self.store.gaze_profile()
+        restored = profile is not None and self.gaze.restore(profile)
+        if restored and self.current_display is not None:
+            self.gaze.confirm_display(self.current_display, self.clock())
+        return restored
+
+    def _suspend_gaze(self, reason):
+        if self.gaze.status != 'ready':
+            self.gaze.reset(reason)
+            self.diagnostics.sync_calibration(self.gaze, self.clock())
+            self._restore_gaze_setup()
+        self.gaze.clear_point(self.clock(), reason)
 
     def start_ticker(self):
         self.thread = threading.Thread(target=self._loop, daemon=True, name='session-timer')
@@ -75,7 +91,8 @@ class SessionController:
 
     def _start_camera(self, invalidate_gaze=False):
         if invalidate_gaze:
-            self.gaze.reset('camera_restarted_recalibrate')
+            self.diagnostics.stop_trial(self.clock(), 'camera_restarted', 'interrupted')
+            self._suspend_gaze('waiting_for_frame')
         self.camera_error = None
         self.detector = AwayDetector()
         self.state = 'unknown'
@@ -87,7 +104,11 @@ class SessionController:
     def _update_gaze(self, now=None):
         now = self.clock() if now is None else now
         observation = self._observation() if self.active_id else (self._camera_observation() if self.preview_until > now else Observation(now))
+        collecting = self.gaze.status in ('collecting', 'validating')
         self.gaze.update(observation, now)
+        if collecting and self.gaze.status == 'uncalibrated':
+            self.diagnostics.sync_calibration(self.gaze, now)
+            self._restore_gaze_setup()
         point = self.gaze.snapshot(now)['observation']
         self.diagnostics.update(observation, point, self.gaze, now, self.wall_clock(), self.active_id, self.status, getattr(self, 'camera_enabled', False))
         self._flush_diagnostics(now)
@@ -239,7 +260,11 @@ class SessionController:
             if self.gaze.status in ('collecting', 'validating') and calibration_id == self.gaze.identifier:
                 # Check expiry before renewing; an abandoned client cannot revive it.
                 self.gaze._deadlines(now)
-                self.gaze.last_client_seen = now
+                if self.gaze.status not in ('collecting', 'validating'):
+                    self.diagnostics.sync_calibration(self.gaze, now)
+                    self._restore_gaze_setup()
+                else:
+                    self.gaze.last_client_seen = now
                 if self.preview_until > now:
                     self.preview_until = now + 8
             self._update_gaze()
@@ -262,11 +287,18 @@ class SessionController:
             if action == 'reset':
                 if data.get('calibration_id') is not None and data['calibration_id'] != self.gaze.identifier:
                     raise ValueError('This calibration is no longer current.')
+                # A token-scoped reset cancels an attempt; an explicit reset forgets setup.
+                if data.get('calibration_id') is None:
+                    self.store.reset_gaze_profile()
                 self.gaze.reset('calibration_reset')
+                self.diagnostics.sync_calibration(self.gaze, now)
+                if data.get('calibration_id') is not None:
+                    self._restore_gaze_setup()
             elif action == 'display':
                 geometry = display_geometry(data.get('display'))
-                if self.gaze.display is not None and geometry != self.gaze.display:
-                    self.gaze.reset('display_changed_recalibrate')
+                self.current_display = geometry
+                if self.gaze.display is not None:
+                    self.gaze.confirm_display(geometry, now)
             else:
                 observing = (self.active_id and self.camera_enabled and self.status == 'running') or (not self.active_id and self.preview_until > now)
                 if not observing or self._camera_observation().camera_status != 'ready':
@@ -276,17 +308,24 @@ class SessionController:
                         raise ValueError('Finish or cancel the current collection first.')
                     metadata = conditions(data.get('conditions'))
                     self.diagnostics.stop_trial(now, 'calibration_replaced', 'interrupted')
-                    self.gaze.start(data.get('display'), now)
+                    self.current_display = display_geometry(data.get('display'))
+                    self.gaze.start(self.current_display, now)
                     self.diagnostics.begin_calibration(self.active_id, self.gaze, now, self.wall_clock(), metadata)
                 elif action == 'target':
                     self.gaze.target(data.get('calibration_id'), data.get('target_index'), now)
                 elif action == 'complete':
                     if self.gaze.complete(data.get('calibration_id')):
                         try:
-                            self.store.save_calibration(self.gaze.record(), self.active_id, utc(self.wall_clock()))
+                            self.store.save_gaze_setup(self.gaze.record(), self.active_id, utc(self.wall_clock()))
                         except Exception:
                             self.gaze.reset('calibration_save_failed')
-                            raise
+                            self.diagnostics.sync_calibration(self.gaze, now)
+                            self._restore_gaze_setup()
+                            raise ValueError('Gaze setup could not be saved. Try again.')
+                    else:
+                        self.diagnostics.sync_calibration(self.gaze, now)
+                        self._restore_gaze_setup()
+                        raise ValueError('Setup needs another try. Keep both eyes visible.')
                 else:
                     raise ValueError('Unknown calibration action.')
             self.diagnostics.sync_calibration(self.gaze, now)
@@ -305,7 +344,7 @@ class SessionController:
             if self.preview_until and self.clock() >= self.preview_until:
                 self.preview_until = 0.0
                 self.camera.stop()
-                self.gaze.reset('setup_preview_expired')
+                self._suspend_gaze('setup_preview_expired')
             return
         now, wall = self.clock(), self.wall_clock()
         delta = max(0.0, now - self.last_tick)
@@ -343,9 +382,9 @@ class SessionController:
         with self.lock:
             if self.active_id:
                 raise ValueError('End the current session before starting another.')
-            transfer_calibration = camera_enabled and self.preview_until > self.clock() and self.gaze.status == 'ready'
-            if not transfer_calibration:
-                self.gaze.reset()
+            if self.gaze.status != 'ready':
+                self._suspend_gaze('session_started')
+            transfer_calibration = camera_enabled and self.gaze.status == 'ready'
             identifier = str(uuid.uuid4())
             self.store.create(identifier, task.strip(), mode, utc(self.wall_clock()), camera_enabled)
             if transfer_calibration:
@@ -392,7 +431,7 @@ class SessionController:
             self.gaze.clear_point(self.clock(), 'waiting_for_frame' if enabled else 'camera_off')
             self.gaze_previous = ('break' if self.status == 'break' else 'unknown', None)
             if self.gaze.status in ('collecting', 'validating'):
-                self.gaze.reset('calibration_interrupted')
+                self._suspend_gaze('calibration_interrupted')
             self.preview_until = 0.0
             self.camera_error = None
             self.detector = AwayDetector()
@@ -420,7 +459,7 @@ class SessionController:
             self.preview_until = 0.0
             if not self.active_id:
                 self.camera.stop()
-                self.gaze.reset('setup_preview_closed')
+                self._suspend_gaze('setup_preview_closed')
 
     def preview_frame(self):
         with self.lock:
@@ -444,7 +483,7 @@ class SessionController:
             self.gaze.clear_point(self.clock(), 'break')
             self.gaze_previous = ('break', None)
             if self.gaze.status in ('collecting', 'validating'):
-                self.gaze.reset('calibration_interrupted')
+                self._suspend_gaze('calibration_interrupted')
             self.store.set_status(self.active_id, 'break')
             self.camera.stop()
             self._update_gaze()
@@ -472,7 +511,7 @@ class SessionController:
             self.diagnostics.stop_trial(self.clock(), 'session_ended', 'interrupted')
             if self.diagnostics.check:
                 self.diagnostics.cancel(self.diagnostics.check['id'], self.clock(), 'session_ended', 'interrupted')
-            self.gaze.reset()
+            self._suspend_gaze('session_ended')
             self.diagnostics.sync_calibration(self.gaze, self.clock())
             self._flush_diagnostics(self.clock(), True)
             self.store.set_status(identifier, status, utc(self.wall_clock()))
