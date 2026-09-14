@@ -31,3 +31,11 @@ test: install
 	$(VENV)/bin/python -m unittest discover -s tests -v
 	npm --prefix $(FRONTEND) test
 	npm --prefix $(FRONTEND) run build
+
+.PHONY: web test-web
+web:
+	npm --prefix apps/web run dev
+
+test-web:
+	npm --prefix apps/web test
+	npm --prefix apps/web run build

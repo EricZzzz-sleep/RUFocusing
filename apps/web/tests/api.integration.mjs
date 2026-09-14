@@ -1,6 +1,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { createHmac } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 const config=JSON.parse(execFileSync('npx',['--yes','supabase@2.117.0','status','-o','json'],{cwd:new URL('../../../',import.meta.url),encoding:'utf8',stdio:['ignore','pipe','pipe']}))
 assert.equal(config.API_URL,'http://127.0.0.1:54321','Integration tests require disposable local Supabase')
@@ -22,6 +23,10 @@ function command(user,action,session,data={}){return {action,command_id:crypto.r
 test('rejects missing/forged/expired authentication, disallowed origins, and oversized input',async()=>{
  assert.equal((await api('/state',null)).status,401)
  assert.equal((await api('/state',{token:'forged'})).status,401)
+ const encode=value=>Buffer.from(JSON.stringify(value)).toString('base64url')
+ const payload=encode({alg:'HS256',typ:'JWT'})+'.'+encode({sub:users[0].id,role:'authenticated',aud:'authenticated',exp:Math.floor(Date.now()/1000)-3600})
+ const expired=payload+'.'+createHmac('sha256',config.JWT_SECRET).update(payload).digest('base64url')
+ assert.equal((await api('/state',{token:expired})).status,401)
  assert.equal((await api('/state',users[0],undefined,{Origin:'https://untrusted.example'})).status,403)
  assert.equal((await api('/commands',users[0],{large:'x'.repeat(40000)})).status,413)
 })

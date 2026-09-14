@@ -13,6 +13,6 @@ self.onmessage = async (event: MessageEvent) => {
       // Return only face count. Meshes never leave this worker.
       self.postMessage({ type: 'observation', faceCount: result.faceLandmarks.length, timestamp })
     }
-  } catch { self.postMessage({ type: 'error', message: 'Tracking could not start. Retry or continue without the camera.' }) }
+  } catch (error) { console.error('Vision worker failure:', error instanceof Error ? error.message : 'unknown'); self.postMessage({ type: 'error', message: 'Tracking could not start. Retry or continue without the camera.' }) }
   finally { bitmap?.close() }
 }

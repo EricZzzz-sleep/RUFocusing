@@ -23,7 +23,12 @@ export default function SessionDetails({ id, timezone, changed }: { id: string; 
     const cmd = pending.current ?? newCommand(action, latest.current, data)
     pending.current = cmd; commandBusy.current = true; setBusy(true); setError(''); setMessage('')
     try {
-      const result = await api<CommandResult>('/commands', cmd)
+      let result = await api<CommandResult>('/commands', cmd)
+      // Resolve an ambiguous prior save before applying a draft edited during the outage.
+      if (result.session && JSON.stringify(cmd.data) !== JSON.stringify(data)) {
+        const next = newCommand(action, result.session, data); pending.current = next
+        result = await api<CommandResult>('/commands', next)
+      }
       pending.current = null
       if (alive.current && result.session) { latest.current = result.session; setSession(result.session) }
       changed(); return result

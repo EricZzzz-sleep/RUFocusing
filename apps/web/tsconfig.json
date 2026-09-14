@@ -24,6 +24,7 @@
     "tests",
     "vite.config.ts",
     "playwright.config.ts",
-    "../../packages/study"
+    "../../packages/study",
+    "vite.camera.config.ts"
   ]
 }

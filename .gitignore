@@ -17,3 +17,4 @@ apps/web/public/models/*.task
 apps/web/public/wasm/
 supabase/.temp/
 supabase/.branches/
+apps/web/public/tracking/

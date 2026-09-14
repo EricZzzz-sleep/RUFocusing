@@ -11,6 +11,7 @@ export default function Record({ controller: c, settings }: { controller: Sessio
   const [camera, setCamera] = useState(() => preference('camera-default') === 'true')
   const [, tick] = useState(0)
   useEffect(() => { const interval = setInterval(() => tick(v => v + 1), 250); return () => clearInterval(interval) }, [])
+  useEffect(() => { if (!c.active) { setMode(settings.default_mode); setCamera(preference('camera-default') === 'true') } }, [settings])
   const active = c.active
   const elapsed = active?.status === 'running' && c.owned && c.connected && !c.retry ? c.elapsed() : active?.elapsed ?? 0
   const preview = active && withReport({ ...active, elapsed, timeline: mergeIntervals([...active.timeline, ...(elapsed > active.elapsed ? c.buffer.snapshot(elapsed).filter(row => row.end > active.elapsed).map(row => ({ ...row, start: Math.max(active.elapsed, row.start) })) : [])]) })

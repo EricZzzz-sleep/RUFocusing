@@ -112,7 +112,18 @@ test('browser camera worker handles synthetic video and releases capture on brea
    expect(uploads.every(body=>!body.includes('faceLandmarks')&&!body.includes('data:image'))).toBe(true)
    await page.getByRole('button',{name:'Take a break'}).click();await expect.poll(()=>page.locator('video').evaluate((video:HTMLVideoElement)=>video.srcObject)).toBeNull()
    await page.getByRole('button',{name:'Resume session',exact:true}).click();await expect(page.getByText('Tracking presence. No video is saved or uploaded.',{exact:true})).toBeVisible({timeout:20000})
-   await page.getByRole('checkbox',{name:'Use camera',exact:true}).uncheck();await expect.poll(()=>page.locator('video').evaluate((video:HTMLVideoElement)=>video.srcObject)).toBeNull()
+   await page.getByRole('checkbox',{name:'Use camera',exact:true}).click();await expect(page.getByRole('checkbox',{name:'Use camera',exact:true})).not.toBeChecked();await expect.poll(()=>page.locator('video').evaluate((video:HTMLVideoElement)=>video.srcObject)).toBeNull()
    await page.getByRole('button',{name:'End & save session'}).click();await expect(page.getByRole('heading',{name:'Session summary.'})).toBeVisible()
  }finally{await context.close();await cameraBrowser.close()}
+})
+
+test('camera permission denial preserves recording and offers retry',async({page})=>{
+ await page.addInitScript(()=>{
+   Object.defineProperty(navigator.mediaDevices,'getUserMedia',{configurable:true,value:()=>Promise.reject(new DOMException('Denied for test','NotAllowedError'))})
+ })
+ await page.goto('/');await page.getByLabel('Email',{exact:true}).fill(email);await page.getByLabel('Password',{exact:true}).fill(password);await page.getByRole('button',{name:'Sign in',exact:true}).click()
+ await page.getByRole('link',{name:'Record',exact:true}).click();await page.getByLabel('What are you working on?').fill('Denied camera');await page.getByRole('checkbox',{name:'Use camera for presence estimates'}).check();await page.getByRole('button',{name:'Start session'}).click()
+ await expect(page.getByText('Camera permission was denied. Allow camera access in your browser, then retry.').first()).toBeVisible()
+ await expect(page.getByRole('button',{name:'Retry camera',exact:true})).toBeEnabled();await expect(page.getByRole('button',{name:'End & save session'})).toBeEnabled()
+ await page.getByRole('button',{name:'End & save session'}).click();await expect(page.getByRole('heading',{name:'Session summary.'})).toBeVisible();await expect(page.getByText('No tracking data',{exact:true})).toBeVisible()
 })

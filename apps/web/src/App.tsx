@@ -3,6 +3,7 @@ import type { User } from '@supabase/supabase-js'
 import { api, auth, configured, type Settings as SettingsValue } from './api'
 import { Link, navigate, usePath } from './Router'
 import Auth from './Auth'
+import Privacy from './Privacy'
 import { useStudySession } from './session'
 import Record from './Record'
 import Analysis from './Analysis'
@@ -68,13 +69,13 @@ export default function App() {
   }
   const publicPage = path === '/' && !user
   const detail = path.match(/^\/sessions\/([0-9a-f-]{36})$/i)
-  const known = ['/', '/analysis', '/record', '/settings', '/auth/callback', '/auth/reset'].includes(path) || Boolean(detail)
+  const known = ['/', '/analysis', '/record', '/settings', '/auth/callback', '/auth/reset', '/privacy'].includes(path) || Boolean(detail)
   return <>
     <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); document.getElementById('main-content')?.focus() }}>Skip to study workspace</a>
     <header className="app-header"><div className="header-inner"><Link href={user ? '/analysis' : '/'} className="brand"><span className="brand-mark" aria-hidden="true">r<span>u</span></span>RUFocusing<span className="brand-divider"/><span className="header-section">Study space</span></Link>{user ? <button className="text-button" disabled={signingOut || controller.busy} onClick={() => void signOut()}>{signingOut ? 'Signing out…' : 'Sign out'}</button> : <span className="connection">Your private study space</span>}</div></header>
     <main id="main-content" tabIndex={-1}>
       {authError && <p className="error" role="alert">{authError}</p>}
-      {!authLoaded ? <p role="status">Checking sign-in…</p> : !known ? <><h1>Page not found.</h1><Link className="button primary" href={user ? '/analysis' : '/'}>Return to your study space</Link></> : !user ? <div className={publicPage ? 'welcome-grid' : 'sign-in-page'}>
+      {!authLoaded ? <p role="status">Checking sign-in…</p> : path === '/privacy' ? <Privacy/> : !known ? <><h1>Page not found.</h1><Link className="button primary" href={user ? '/analysis' : '/'}>Return to your study space</Link></> : !user ? <div className={publicPage ? 'welcome-grid' : 'sign-in-page'}>
         <div><p className="eyebrow">A LITTLE MORE INTENTION</p><h1 tabIndex={-1}>Make time for<br/>your work<span>.</span></h1><p className="intro">Record a session. See how it unfolds. Find a rhythm that works for you.</p><p>Optional camera tracking stays in your browser. Your saved sessions are private to your account.</p><ul className="welcome-points"><li>A simple timer with breaks when you need them.</li><li>Presence-based timelines with honest gaps.</li><li>Your history, reflections, and exports in one place.</li></ul></div><Auth/>
       </div> : recovery ? <div className="sign-in-page"><Auth recovery/></div> : <>
         <nav className="workspace-nav" aria-label="Study workspace">{[['/analysis','Analysis'],['/record','Record'],['/settings','Settings']].map(([href,label]) => <Link key={href} href={href} aria-current={path === href || (path === '/' && href === '/analysis') ? 'page' : undefined}>{label}</Link>)}</nav>
@@ -84,13 +85,13 @@ export default function App() {
         {controller.busy && <p className="save-status" role="status">Saving checkpoint or session change…</p>}
         {settingsError ? <p className="error" role="alert">{settingsError} <button className="text-button" onClick={() => setRetrySettings(value => value+1)}>Retry preferences</button></p> : !settings ? <p role="status">Loading your workspace…</p> : <>
           {controller.active && path !== '/record' && <div className="notice active-session-status">{controller.active.status === 'break' ? 'Session paused' : 'Session in progress'} · {controller.active.task} <Link href="/record">Return to session →</Link></div>}
-          <div hidden={path !== '/record'}><Record key={`${user.id}:${settings.default_mode}`} controller={controller} settings={settings}/></div>
+          <div hidden={path !== '/record'}><Record key={user.id} controller={controller} settings={settings}/></div>
           {(path === '/analysis' || path === '/' || path === '/auth/callback') && <Analysis version={dataVersion+controller.version} timezone={settings.timezone!}/>}
           {detail && <SessionDetails key={detail[1]} id={detail[1]} timezone={settings.timezone!} changed={changed}/>}
           {path === '/settings' && <Settings user={user} settings={settings} active={Boolean(controller.active)} onSaved={value => { setSettings(value); changed() }}/>}
         </>}
       </>}
-      <footer><span>RUFocusing <span aria-hidden="true">/</span> A little time, well understood.</span><span>{user ? 'Private to your account' : 'Optional camera · No video uploads'}</span></footer>
+      <footer><span>RUFocusing <span aria-hidden="true">/</span> A little time, well understood.</span><Link href="/privacy">Privacy & tracking</Link></footer>
     </main>
   </>
 }

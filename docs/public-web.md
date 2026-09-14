@@ -18,6 +18,8 @@ npm --prefix apps/web run dev
 
 Create `supabase/functions/.env.local` from its `.env.example`; the default web origin is `http://127.0.0.1:5174`. The configure script reads only the disposable local Supabase stack and writes its public URL/anon key to an ignored `apps/web/.env.local`. Never use production credentials for tests. Local registration and password-reset emails appear in Mailpit at `http://127.0.0.1:54324`.
 
+The dev/build scripts prepare a classic worker bundle because MediaPipe’s WASM loader uses `importScripts`. Run `npm --prefix apps/web run camera:build` after changing the worker during an existing dev session.
+
 The model preparation script downloads the pinned Google float16 face model, verifies SHA-256, and copies the versioned MediaPipe WASM assets from the installed package. All inference assets are then served from the site's own origin. Frames and meshes remain in browser memory; only compact presence intervals are uploaded.
 
 ## Commands and data
@@ -57,6 +59,7 @@ npm --prefix apps/web test
 npm --prefix apps/web run build
 # With the local stack, function server, and web dev server running:
 npm --prefix apps/web exec playwright install chromium
+npm --prefix apps/web run test:integration
 npm --prefix apps/web run test:ui
 ```
 
@@ -79,3 +82,13 @@ Launch acceptance: Google and verified-email sign-in; email recovery; cross-acco
 Observe Edge Function request IDs, HTTP statuses, and error codes for failed saves. Never log tokens, emails, task names, reflections, images, or face landmarks. Roll back frontend/function versions if needed; database migrations are append-only. Keep production backups under the provider's configured retention policy, and describe that retention accurately before making deletion guarantees beyond live application data.
 
 This v1 does not add gaze calibration, local-history import, Pomodoro scheduling, goals, social features, payments, or offline recording.
+
+## Latest local validation
+
+- Existing app: 100 Python tests, 64 frontend tests, and production build pass.
+- Public app: 26 unit/database/parity tests, 3 real local API integration tests, and 13 desktop/mobile browser scenarios pass; the desktop-only synthetic camera scenario is intentionally skipped in the mobile project.
+- Browser checks include actual local email verification/reset, record/break/resume/save, reflection/edit/export/delete, account deletion, conflicting tabs, lost-response retries, camera permission denial, and the classic MediaPipe worker processing synthetic video and releasing capture.
+- The release configuration check correctly rejects the local Supabase backend. No public deployment has been made. Production Google OAuth, external email delivery, hosted route behavior, and physical-webcam accuracy remain launch acceptance requirements.
+- Optional WebMCP tools passed a registry contract test. A live browser WebMCP implementation was not available for platform-level validation.
+
+Cloudflare-compatible `_redirects` map the app and callback routes to the SPA entry point while leaving static model/worker assets untouched. See the [Cloudflare static asset proxying contract](https://developers.cloudflare.com/workers/static-assets/redirects/#proxying).

@@ -22,7 +22,13 @@ Deno.serve(async req => {
     const path = new URL(req.url).pathname.replace(/^.*\/api(?=\/|$)/, '') || '/'
     const query = new URL(req.url).searchParams
     async function rpc<T>(name: string, args: Record<string, unknown> = {}): Promise<T> {
-      const { data, error } = await client.rpc(name, args)
+      let { data, error } = await client.rpc(name, args)
+      // A just-issued Auth token can reach PostgREST before its clock catches up.
+      // This rejection occurs before SQL executes; retry once without relaxing JWT checks.
+      if (error?.code === 'PGRST303' && error.message === 'JWT issued at future') {
+        await new Promise(resolve => setTimeout(resolve, 1100))
+        ;({ data, error } = await client.rpc(name, args))
+      }
       if (error) throw Object.assign(new Error(error.message), { code: error.code })
       return data as T
     }
@@ -37,9 +43,7 @@ Deno.serve(async req => {
         return json({ ...value, active: value.active && withReport(value.active) }, 200, origin)
       }
       if (path === '/settings') {
-        const { data, error } = await client.from('ru_settings').select('timezone,default_mode').eq('user_id', user.id).maybeSingle()
-        if (error) throw error
-        return json(data ?? { timezone: null, default_mode: 'Math' }, 200, origin)
+        return json(await rpc('ru_settings_get'), 200, origin)
       }
       if (path === '/history') {
         const value = await rpc<{sessions: CloudSession[]; total: number; page: number; page_size: number}>('ru_history', { p_days: Number(query.get('days') ?? 7), p_page: Number(query.get('page') ?? 0), p_search: query.get('search') ?? '', p_mode: query.get('mode') ?? '', p_status: query.get('status') ?? '' })

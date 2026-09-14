@@ -14,8 +14,11 @@
     "models": "node scripts/prepare-models.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 4174",
     "local:configure": "node scripts/configure-local.mjs",
-    "build:release": "node scripts/check-release.mjs && npm run models && npm run build",
-    "test:integration": "node --test tests/api.integration.mjs"
+    "build:release": "node scripts/check-release.mjs && npm run build",
+    "test:integration": "node --test tests/api.integration.mjs",
+    "camera:build": "vite build --config vite.camera.config.ts",
+    "predev": "npm run models && npm run camera:build",
+    "prebuild": "npm run models && npm run camera:build"
   },
   "dependencies": {
     "react": "19.2.8",

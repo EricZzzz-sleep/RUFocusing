@@ -1,6 +1,6 @@
 import { beforeAll, afterAll, describe, expect, it } from 'vitest'
 import { PGlite } from '@electric-sql/pglite'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { withReport, type CloudSession } from '../../../packages/study'
 const db = new PGlite()
 const alice = '00000000-0000-4000-8000-000000000001', bob = '00000000-0000-4000-8000-000000000002'
@@ -29,7 +29,7 @@ async function age(session: CloudSession, seconds: number, expire = false) {
 beforeAll(async () => {
   await db.exec(`create role anon; create role authenticated; create schema auth; create table auth.users(id uuid primary key); create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$; grant usage on schema auth to authenticated,anon; grant execute on function auth.uid() to authenticated,anon;`)
   await db.query('insert into auth.users values($1),($2)',[alice,bob])
-  await db.exec(readFileSync(new URL('../../../supabase/migrations/202609130001_public_study.sql',import.meta.url),'utf8'))
+  for (const name of readdirSync(new URL('../../../supabase/migrations/',import.meta.url)).filter(name=>name.endsWith('.sql')).sort()) await db.exec(readFileSync(new URL('../../../supabase/migrations/'+name,import.meta.url),'utf8'))
   await identity(alice)
 },30000)
 afterAll(async () => db.close())

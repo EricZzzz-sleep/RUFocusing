@@ -35,7 +35,7 @@ export default function Camera({ controller }: { controller: SessionController }
         const available = await navigator.mediaDevices.enumerateDevices()
         if (disposed || failed) return
         setDevices(available.filter(item => item.kind === 'videoinput'))
-        worker = new Worker(new URL('./camera.worker.ts', import.meta.url), { type: 'module' })
+        worker = new Worker('/tracking/camera.js')
         worker.onmessage = event => {
           if (disposed || failed) return
           if (event.data.type === 'ready') { clearTimeout(startup); booted = true; setReady(true); setStatus('Tracking presence. No video is saved or uploaded.') }
