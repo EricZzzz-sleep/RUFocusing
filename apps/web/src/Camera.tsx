@@ -45,7 +45,7 @@ export default function Camera({ controller }: { controller: SessionController }
         worker.onerror = () => fail('Tracking stopped. Retry or continue without the camera.')
         worker.postMessage({ type: 'init', base: location.origin })
       } catch (e) {
-        const name = e instanceof Error ? e.name : ''
+        const name = e && typeof e === 'object' && 'name' in e ? e.name : ''
         fail(name === 'NotAllowedError' ? 'Camera permission was denied. Allow camera access in your browser, then retry.' : name === 'NotFoundError' || name === 'OverconstrainedError' ? 'Camera not found. Select another camera or continue without tracking.' : 'Camera unavailable. Check access and retry, or continue without tracking.')
       }
     })()
@@ -66,12 +66,13 @@ export default function Camera({ controller }: { controller: SessionController }
   }, [controller.observing, device, attempt])
   return <section className="panel web-camera" aria-labelledby="camera-heading"><div className="panel-heading"><h2 id="camera-heading">Camera</h2><span className="small-badge">Optional</span></div>
     <p className="muted">Presence estimates run in your browser. Video and face landmarks are never uploaded.</p>
-    <div className="camera-toolbar"><label className="checkbox-label"><input type="checkbox" checked={controller.active?.camera_enabled ?? false} disabled={!controller.active || controller.busy || !controller.connected || (controller.active.status === 'running' && !controller.owned)} onChange={event => void controller.command('camera', { enabled: event.target.checked }).catch(() => {})}/>Use camera</label>
+    <div className="camera-toolbar"><label className="checkbox-label"><input type="checkbox" checked={controller.active?.camera_enabled ?? false} disabled={!controller.active || controller.busy || Boolean(controller.retry) || !controller.connected || (controller.active.status === 'running' && !controller.owned)} onChange={event => void controller.command('camera', { enabled: event.target.checked }).catch(() => {})}/>Use camera</label>
       <button className="text-button" onClick={() => setPreview(value => !value)}>{preview ? 'Hide preview' : 'Show preview'}</button>
     </div>
     <div className={preview ? 'web-video' : 'web-video visually-hidden'}><video ref={video} muted playsInline aria-label="Live camera preview" />{!ready && <p>{status}</p>}</div>
     <p role="status">{status}</p>
-    {devices.length > 0 && <label>Camera device<select value={device} onChange={event => { setDevice(event.target.value); savePreference('camera-device', event.target.value) }}><option value="">Default camera</option>{devices.map(item => <option key={item.deviceId} value={item.deviceId}>{item.label || 'Camera'}</option>)}</select></label>}
+    {(devices.length > 0 || device) && <label>Camera device<select value={device} onChange={event => { setDevice(event.target.value); savePreference('camera-device', event.target.value) }}><option value="">Default camera</option>{device && !devices.some(item => item.deviceId === device) && <option value={device}>Previously selected camera</option>}{devices.map(item => <option key={item.deviceId} value={item.deviceId}>{item.label || 'Camera'}</option>)}</select></label>}
+    {device && !ready && <button className="button secondary" onClick={() => { setDevice(''); savePreference('camera-device', '') }}>Use default camera</button>}
     {controller.observing && !ready && <button className="button secondary" onClick={() => setAttempt(value => value + 1)}>Retry camera</button>}
   </section>
 }

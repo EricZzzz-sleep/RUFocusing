@@ -36,7 +36,8 @@ test('sign in, record, save, reflect, edit, export and delete on desktop/mobile'
  const stream=await file.createReadStream();let text='';for await(const chunk of stream!) text+=chunk.toString();const saved=JSON.parse(text);expect(saved.version).toBe(1);expect(saved.sessions[0].task).toBe('Algebra revision');expect(saved.sessions[0].reflection.concentration).toBe(4)
  await page.getByRole('link',{name:'Analysis',exact:true}).click();await page.getByRole('link',{name:/Algebra revision/}).click()
  await page.getByRole('button',{name:'Delete session',exact:true}).click();await expect(page.getByRole('dialog')).toBeVisible()
- await page.getByRole('button',{name:'Keep session',exact:true}).focus();await page.keyboard.press('Tab');await expect(page.getByRole('button',{name:'Delete permanently',exact:true})).toBeFocused();await page.keyboard.press('Enter')
+ // Safari's default keyboard policy uses Option-Tab to include buttons.
+ await page.getByRole('button',{name:'Keep session',exact:true}).focus();await page.keyboard.press(testInfo.project.use.defaultBrowserType === 'webkit' ? 'Alt+Tab' : 'Tab');await expect(page.getByRole('button',{name:'Delete permanently',exact:true})).toBeFocused();await page.keyboard.press('Enter')
  await expect(page.getByRole('heading',{name:'Room for your next session'})).toBeVisible()
  await page.getByRole('button',{name:'Sign out',exact:true}).click();await expect(page.getByRole('heading',{name:'Welcome to your study space'})).toBeVisible()
  expect(errors).toEqual([])
@@ -97,7 +98,7 @@ test('account deletion removes the real local authentication account and cloud r
 })
 
 test('browser camera worker handles synthetic video and releases capture on breaks',async({browser},testInfo)=>{
- test.skip(testInfo.project.name==='mobile','Desktop camera support is the public v1 target.')
+ test.skip(testInfo.project.name!=='desktop','Synthetic camera inference is exercised in desktop Chromium; physical camera acceptance is separate.')
  const {chromium}=await import('@playwright/test')
  const cameraBrowser=await chromium.launch({args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream']})
  const context=await cameraBrowser.newContext({permissions:['camera']}),page=await context.newPage()

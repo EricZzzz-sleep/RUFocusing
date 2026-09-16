@@ -58,12 +58,16 @@ npm --prefix apps/desktop run build
 npm --prefix apps/web test
 npm --prefix apps/web run build
 # With the local stack, function server, and web dev server running:
-npm --prefix apps/web exec playwright install chromium
+npm --prefix apps/web exec playwright install chromium firefox webkit
 npm --prefix apps/web run test:integration
 npm --prefix apps/web run test:ui
 ```
 
 Database tests execute the actual migration in embedded PostgreSQL (PGlite) with test-only auth identities and roles. Browser tests use the real local Supabase Auth, Postgres, and Edge Function, create disposable users, and delete them afterward. They refuse any non-local backend. Screenshots and traces are ignored artifacts. Google OAuth and real webcam accuracy require separate production/provider and physical-device acceptance; passing synthetic tests does not establish those.
+
+With those local services running, `npm --prefix apps/web run test:beta` runs web tests, the build, API integration tests, and all browser projects in order. See [private beta acceptance](beta-acceptance.md) for production prerequisites and the physical-camera protocol.
+
+Failed authentication requests leave retry controls usable. An expired API login shows an in-page sign-in form and preserves pending recording commands for an exact retry after authentication. Reconnected state reads clear obsolete connection errors without erasing unresolved command failures. A saved camera that is no longer available can be reset to the default device before camera enumeration succeeds.
 
 ## Production setup and launch
 
@@ -75,7 +79,7 @@ The Sites project is registered in `apps/web/.openai/hosting.json`; registration
 4. Configure Google OAuth with the site's origin and Supabase's callback URI. Enable the Google provider in Supabase. Keep the Google client secret out of all browser files.
 5. Set the function secret `ALLOWED_ORIGINS` to the public site origin, then deploy the `api` function. Supabase supplies its internal URL, anon key, and service-role key. Never expose the service-role key to Sites or Vite.
 6. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` for the production build (an ignored `.env.production.local` or explicit build environment). Run `npm --prefix apps/web run build:release`. This rejects a missing/non-HTTPS/local backend or a privileged browser key and prepares model assets.
-7. Complete the acceptance checks below, then use the existing Sites project to publish the validated `apps/web/dist` static output. Push the corresponding source, retaining shared source dependencies; package with the Sites `package-site.sh` helper against `apps/web`. The archive must contain only public build assets, never `.env` files or the local SQLite database. Explicitly change the site audience to public as requested only at launch.
+7. Complete local acceptance, then use the existing Sites project to publish the validated `apps/web/dist` static output privately for hosted acceptance. Push the corresponding source, retaining shared source dependencies; package with the Sites `package-site.sh` helper against `apps/web`. The archive must contain only public build assets, never `.env` files or the local SQLite database. Preserve owner-only access for this beta; a public launch is a separate milestone.
 
 Launch acceptance: Google and verified-email sign-in; email recovery; cross-account isolation; camera-free record/save/reload on another device; pause/resume and competing tabs; lost response retry; 30-second timeout; report/filter/export/deletion; desktop/mobile keyboard and overflow checks; real-camera permission/retry and a ten-minute physical presence session. Verify static navigation to `/analysis`, `/record`, `/sessions/:id`, `/settings`, and auth callback routes on the hosted URL.
 
@@ -86,9 +90,9 @@ This v1 does not add gaze calibration, local-history import, Pomodoro scheduling
 ## Latest local validation
 
 - Existing app: 100 Python tests, 64 frontend tests, and production build pass.
-- Public app: 26 unit/database/parity tests, 3 real local API integration tests, and 13 desktop/mobile browser scenarios pass; the desktop-only synthetic camera scenario is intentionally skipped in the mobile project.
-- Browser checks include actual local email verification/reset, record/break/resume/save, reflection/edit/export/delete, account deletion, conflicting tabs, lost-response retries, camera permission denial, and the classic MediaPipe worker processing synthetic video and releasing capture.
-- The release configuration check correctly rejects the local Supabase backend. No public deployment has been made. Production Google OAuth, external email delivery, hosted route behavior, and physical-webcam accuracy remain launch acceptance requirements.
+- Public app: 52 unit/database/parity/release checks, 3 real local API integration tests, the production-mode build, and 49 browser scenarios pass. Chromium, Firefox, desktop WebKit, and mobile WebKit are covered. Three duplicate synthetic-camera scenarios are intentionally skipped; desktop Chromium exercises actual inference on synthetic video.
+- Browser checks include local email verification/reset, record/break/resume/save, reflection and timeline-tag editing, account/session deletion, competing tabs, lost-response retries, expired-login recovery, camera permission denial/reset, cross-tab auth locks, 205-record JSON/CSV exports, and 200% text enlargement. Desktop and mobile analysis screenshots were visually reviewed.
+- The release configuration check correctly rejects the local Supabase backend, malformed keys, and privileged keys. No private or public deployment has been made. Production Supabase access, Google OAuth, external email delivery, hosted route behavior, provider backup retention, and physical-webcam acceptance remain outstanding. See the [acceptance record](beta-acceptance.md#acceptance-record).
 - Optional WebMCP tools passed a registry contract test. A live browser WebMCP implementation was not available for platform-level validation.
 
 Cloudflare-compatible `_redirects` map the app and callback routes to the SPA entry point while leaving static model/worker assets untouched. See the [Cloudflare static asset proxying contract](https://developers.cloudflare.com/workers/static-assets/redirects/#proxying).

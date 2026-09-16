@@ -21,6 +21,8 @@ export function useStudySession(userId: string | undefined) {
   const [active, setActive] = useState<Session | null>(null)
   const [loaded, setLoaded] = useState(false), [connected, setConnected] = useState(true)
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
+  const [connectionError, setConnectionError] = useState('')
+  const [requiresSignIn, setRequiresSignIn] = useState(false)
   const [retry, setRetry] = useState<Command | null>(null)
   const [version, setVersion] = useState(0)
   const state = useRef<Session | null>(null), commandBusy = useRef(false), epoch = useRef(0)
@@ -44,11 +46,11 @@ export function useStudySession(userId: string | undefined) {
     try {
       const result = await api<State>('/state')
       if (accountRef.current !== account || currentEpoch !== epoch.current || commandBusy.current) return
-      apply(result.active, sent); setConnected(true); setLoaded(true)
-    } catch (e) { if (accountRef.current === account && currentEpoch === epoch.current) { setConnected(false); setLoaded(true); setError(e instanceof Error ? e.message : 'Connection lost.') } }
+      apply(result.active, sent); setConnected(true); setLoaded(true); setConnectionError(''); setRequiresSignIn(false)
+    } catch (e) { if (accountRef.current === account && currentEpoch === epoch.current) { setConnected(false); setLoaded(true); setConnectionError(e instanceof Error ? e.message : 'Connection lost.'); if (e instanceof ApiError && e.status === 401) setRequiresSignIn(true) } }
   }, [userId])
   useEffect(() => {
-    generation.current++; epoch.current++; commandBusy.current = false; setBusy(false); setError(''); setLoaded(false); setConnected(true); apply(null, performance.now(), true)
+    generation.current++; epoch.current++; commandBusy.current = false; setBusy(false); setError(''); setConnectionError(''); setRequiresSignIn(false); setLoaded(false); setConnected(true); apply(null, performance.now(), true)
     const key = `rufocusing:pending:${userId}`
     let stored: Command | null = null
     if (userId) { try { const raw = sessionStorage.getItem(key); if (raw) stored = JSON.parse(raw) } catch { /* Optional retry storage. */ } }
@@ -69,12 +71,13 @@ export function useStudySession(userId: string | undefined) {
       if (accountRef.current !== account || generation.current !== gen) return result
       retryRef.current = null; setRetry(null); try { sessionStorage.removeItem(key) } catch { /* Optional. */ }
       const next = result.session?.status === 'running' || result.session?.status === 'break' ? result.session : null
-      apply(next, sent); setConnected(true); setVersion(v => v + (command.action === 'checkpoint' ? 0 : 1))
+      apply(next, sent); setConnected(true); setConnectionError(''); setRequiresSignIn(false); setVersion(v => v + (command.action === 'checkpoint' ? 0 : 1))
       return result
     } catch (e) {
       if (accountRef.current === account && generation.current === gen) {
         setError(e instanceof Error ? e.message : 'Could not save the session.');
-        if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
+        if (e instanceof ApiError && e.status === 401) { setRequiresSignIn(true); setConnected(false) }
+        else if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
           retryRef.current = null; setRetry(null); try { sessionStorage.removeItem(key) } catch { /* Optional. */ }
         } else setConnected(false)
       }
@@ -99,7 +102,7 @@ export function useStudySession(userId: string | undefined) {
     const intervals = state.current?.status === 'running' ? buffer.current.snapshot(elapsed()) : []
     return run(newCommand(action, action === 'start' ? null : state.current, { ...data, intervals }))
   }
-  return { active, loaded, connected, busy, error, retry, version, elapsed, buffer: buffer.current,
+  return { active, loaded, connected, busy, requiresSignIn, error: error || connectionError, retry, version, elapsed, buffer: buffer.current,
     command, retrySave: () => retryRef.current ? run(retryRef.current) : Promise.resolve(null), refresh,
     observing: Boolean(active?.status === 'running' && active.camera_enabled && active.owner_tab === tabId && connected && (!retry || busy)),
     owned: Boolean(active?.owner_tab === tabId), setError }

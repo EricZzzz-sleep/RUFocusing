@@ -24,6 +24,8 @@ export default function App() {
     const { data: { subscription } } = auth.auth.onAuthStateChange((event, session) => {
       if (stopped) return
       setUser(session?.user ?? null); setAuthLoaded(true)
+      // Auth callbacks run under the auth lock; refresh after that callback returns.
+      if (session && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) setTimeout(() => { if (!stopped) void ctrl.current.refresh() }, 0)
       if (event === 'PASSWORD_RECOVERY') { setRecovery(true); navigate('/auth/reset', true) }
     })
     void auth.auth.getSession().then(({ data, error }) => {
@@ -32,7 +34,7 @@ export default function App() {
       setUser(data.session?.user ?? null); setAuthLoaded(true)
       const errorDescription = new URL(location.href).searchParams.get('error_description')
       if (errorDescription) setAuthError(errorDescription)
-    })
+    }).catch(error => { if (!stopped) { setAuthError(error instanceof Error ? error.message : 'Could not check sign-in. Please sign in again.'); setAuthLoaded(true) } })
     return () => { stopped = true; subscription.unsubscribe() }
   }, [])
   useEffect(() => {
@@ -80,6 +82,7 @@ export default function App() {
       </div> : recovery ? <div className="sign-in-page"><Auth recovery/></div> : <>
         <nav className="workspace-nav" aria-label="Study workspace">{[['/analysis','Analysis'],['/record','Record'],['/settings','Settings']].map(([href,label]) => <Link key={href} href={href} aria-current={path === href || (path === '/' && href === '/analysis') ? 'page' : undefined}>{label}</Link>)}</nav>
         {controller.error && <p className="error" role="alert">{controller.error}</p>}
+        {controller.requiresSignIn && <section aria-label="Sign-in recovery"><h2>Sign in again to continue</h2><p>Your last saved checkpoint is safe. Sign in to retry any pending save.</p><Auth initialEmail={user.email}/></section>}
         {!controller.connected && <p className="notice" role="status">Connection lost. Only the last acknowledged checkpoint is saved.</p>}
         {controller.retry && !controller.busy && <p className="notice">A save needs confirmation. <button className="button secondary" onClick={() => void controller.retrySave().catch(() => {})}>Retry pending save</button></p>}
         {controller.busy && <p className="save-status" role="status">Saving checkpoint or session change…</p>}

@@ -1,9 +1,12 @@
 import { createClient } from '@supabase/supabase-js'
+import { browserAuthLock } from './auth-lock'
 import type { CloudSession, withReport } from '../../../packages/study'
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined
 export const configured = Boolean(url && key)
-export const auth = configured ? createClient(url!, key!, { auth: { flowType: 'pkce', detectSessionInUrl: true, persistSession: true, autoRefreshToken: true } }) : null
+export const auth = configured ? createClient(url!, key!, { auth: { flowType: 'pkce', detectSessionInUrl: true, persistSession: true, autoRefreshToken: true,
+  ...(typeof navigator !== 'undefined' && navigator.locks ? { lock: browserAuthLock } : {}),
+} }) : null
 export const tabId = crypto.randomUUID()
 export type Session = ReturnType<typeof withReport>
 export interface Settings { timezone: string | null; default_mode: string }
