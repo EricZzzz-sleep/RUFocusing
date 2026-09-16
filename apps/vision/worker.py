@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import signal
 import threading
+import hmac
+import sys
 from urllib.parse import parse_qs, urlsplit
 
 from apps.vision.camera import Camera
@@ -15,7 +17,7 @@ from core.session import SessionController
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def make_handler(controller, frontend_port=5173):
+def make_handler(controller, frontend_port=5173, secret=None):
     allowed_origins = {f'http://127.0.0.1:{frontend_port}', f'http://localhost:{frontend_port}'}
 
     class Handler(BaseHTTPRequestHandler):
@@ -33,6 +35,9 @@ def make_handler(controller, frontend_port=5173):
             self.wfile.write(body)
 
         def allowed(self):
+            if secret is not None and not hmac.compare_digest(self.headers.get('X-RUFocusing-Token', '').encode('utf-8'), secret.encode('ascii')):
+                self.respond(403, {'error': 'This request is not authorized.'})
+                return False
             host = self.headers.get('Host', '').split(':')[0]
             origin = self.headers.get('Origin')
             if host not in ('127.0.0.1', 'localhost') or (origin and origin not in allowed_origins):
@@ -93,6 +98,8 @@ def make_handler(controller, frontend_port=5173):
                     self.respond(500, {'error': 'Study patterns could not be loaded. Retry the report.'})
             elif self.path == '/api/state':
                 self.respond(200, controller.snapshot())
+            elif self.path == '/api/storage':
+                self.respond(200, controller.storage_summary())
             else:
                 self.respond(404, {'error': 'Not found.'})
 
@@ -110,6 +117,9 @@ def make_handler(controller, frontend_port=5173):
                 if not isinstance(data, dict):
                     raise ValueError('Expected a JSON object.')
                 finished = None
+                if self.path in ('/api/storage/delete-session', '/api/storage/clear-history', '/api/storage/reset-gaze'):
+                    self.respond(200, controller.storage_action(self.path.rsplit('/', 1)[-1], data.get('session_id')))
+                    return
                 if self.path.startswith('/api/sessions/') and self.path.rsplit('/', 1)[-1] in ('reflection', 'annotations'):
                     identifier, action = self.path[len('/api/sessions/'):].rsplit('/', 1)
                     self.respond(200, controller.session_analysis(identifier, action, data))
@@ -155,16 +165,45 @@ def main():
     parser.add_argument('--port', type=int, default=18765)
     parser.add_argument('--frontend-port', type=int, default=5173)
     parser.add_argument('--database', default=os.environ.get('RUFOCUSING_DB', str(ROOT / '.data/sessions.sqlite3')))
+    parser.add_argument('--desktop', action='store_true', help='Receive private bootstrap and lifecycle messages on stdin.')
     args = parser.parse_args()
+    if getattr(sys, 'frozen', False) and not args.desktop:
+        parser.error('The packaged service must be started by RUFocusing.')
+    secret = None
+    if args.desktop:
+        bootstrap = json.loads(sys.stdin.readline(16384))
+        secret = bootstrap.get('secret')
+        if not isinstance(secret, str) or len(secret) != 64 or any(c not in '0123456789abcdef' for c in secret):
+            raise ValueError('Invalid desktop bootstrap.')
+        args.database = bootstrap['database']
+        args.port = 0
+        os.umask(0o077)
     controller = SessionController(args.database, Camera())
-    server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(controller, args.frontend_port))
+    server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(controller, args.frontend_port, secret))
     server.daemon_threads = True
     def stop(_signal, _frame):
         threading.Thread(target=server.shutdown, daemon=True).start()
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     controller.start_ticker()
-    print(f'Session API ready at http://127.0.0.1:{args.port}', flush=True)
+    if args.desktop:
+        def lifecycle():
+            try:
+                for line in sys.stdin:
+                    message = json.loads(line)
+                    if message.get('command') == 'shutdown':
+                        break
+                    if message.get('command') == 'suspend':
+                        try:
+                            controller.suspend()
+                        except Exception:
+                            print('Could not save the sleep checkpoint; camera was stopped.', file=sys.stderr, flush=True)
+            finally:
+                server.shutdown()
+        threading.Thread(target=lifecycle, daemon=True, name='desktop-lifecycle').start()
+        print(json.dumps({'ready': True, 'port': server.server_port}), flush=True)
+    else:
+        print(f'Session API ready at http://127.0.0.1:{server.server_port}', flush=True)
     try:
         server.serve_forever(poll_interval=0.2)
     finally:

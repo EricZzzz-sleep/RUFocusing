@@ -2,6 +2,7 @@
 from pathlib import Path
 import sqlite3
 import json
+import os
 from core.analytics.focus_blocks import summarize_timeline
 from core.analytics.study_patterns import analyze_session, validate_reflection, validate_annotations
 
@@ -9,8 +10,11 @@ from core.analytics.study_patterns import analyze_session, validate_reflection, 
 class Store:
     def __init__(self, path):
         path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.path = path
         self.connection = sqlite3.connect(path, check_same_thread=False)
+        if os.name != 'nt':
+            path.chmod(0o600)
         self.connection.row_factory = sqlite3.Row
         version = self.connection.execute("PRAGMA user_version").fetchone()[0]
         if version > 5:
@@ -235,6 +239,39 @@ class Store:
     def history(self):
         rows = self.connection.execute("SELECT id FROM sessions WHERE status IN ('completed','interrupted') ORDER BY started_at DESC").fetchall()
         return [self.get(row['id']) for row in rows]
+
+    def storage_summary(self):
+        files = [self.path, Path(str(self.path) + '-wal'), Path(str(self.path) + '-shm'), Path(str(self.path) + '-journal')]
+        return {'bytes': sum(file.stat().st_size for file in files if file.is_file()),
+                'sessions': self.connection.execute('SELECT COUNT(*) FROM sessions').fetchone()[0],
+                'gaze_setup_saved': self.gaze_profile() is not None}
+
+    def delete_history(self, identifier=None):
+        """Delete history atomically, retaining profiles shared by surviving sessions."""
+        with self.connection:
+            if self.connection.execute("SELECT 1 FROM sessions WHERE status IN ('running','break')").fetchone():
+                raise ValueError('End the current session before deleting history.')
+            if identifier is not None and not self.connection.execute('SELECT 1 FROM sessions WHERE id=?', (identifier,)).fetchone():
+                raise ValueError('Saved session not found.')
+            clause, args = ('', ()) if identifier is None else (' WHERE session_id=?', (identifier,))
+            # Older tables lack ON DELETE CASCADE. Explicitly remove their children.
+            for table in ('analysis_provenance', 'session_reflections', 'session_annotations', 'diagnostic_exclusions',
+                          'gaze_intervals', 'gaze_observations', 'calibration_sessions', 'diagnostic_runs'):
+                self.connection.execute(f'DELETE FROM {table}{clause}', args)
+            # A calibration originally owned by this session may be reused elsewhere.
+            self.connection.execute(f'UPDATE calibrations SET session_id=NULL{clause}', args)
+            self.connection.execute('DELETE FROM sessions' + ('' if identifier is None else ' WHERE id=?'), args)
+            profile = self.gaze_profile()
+            self.connection.execute('''DELETE FROM calibrations WHERE id != ?
+                AND id NOT IN (SELECT calibration_id FROM calibration_sessions)
+                AND id NOT IN (SELECT calibration_id FROM gaze_intervals WHERE calibration_id IS NOT NULL)
+                AND id NOT IN (SELECT calibration_id FROM gaze_observations WHERE calibration_id IS NOT NULL)
+                AND id NOT IN (SELECT calibration_id FROM diagnostic_runs WHERE calibration_id IS NOT NULL)''',
+                (profile['id'] if profile else '',))
+
+    def compact(self):
+        # Never called while recording. VACUUM preserves existing reports and schema.
+        self.connection.execute('VACUUM')
 
     def close(self):
         self.connection.close()

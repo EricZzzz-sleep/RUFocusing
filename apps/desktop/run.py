@@ -71,6 +71,14 @@ def wait_ready(url, child, timeout=30):
     raise RuntimeError(f'Timed out waiting for {url}')
 
 
+def stop_process(child, force=False):
+    if os.name == 'nt':
+        subprocess.run(['taskkill', '/PID', str(child.pid), '/T', *(['/F'] if force else [])],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    else:
+        os.killpg(child.pid, signal.SIGKILL if force else signal.SIGTERM)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, default=5173)
@@ -118,12 +126,12 @@ def main(argv=None):
     finally:
         for child in reversed(children):
             if child.poll() is None:
-                os.killpg(child.pid, signal.SIGTERM)
+                stop_process(child)
         for child in reversed(children):
             try:
                 child.wait(timeout=8)
             except subprocess.TimeoutExpired:
-                os.killpg(child.pid, signal.SIGKILL)
+                stop_process(child, force=True)
                 child.wait()
     return 0
 

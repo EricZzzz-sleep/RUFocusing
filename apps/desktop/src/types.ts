@@ -67,7 +67,7 @@ export const gazeRegionLabels: Record<GazeRegion, string> = {
   bottom_left: 'Bottom left', bottom_center: 'Bottom center', bottom_right: 'Bottom right',
 }
 
-export type WorkspacePage = 'analysis' | 'record'
+export type WorkspacePage = 'analysis' | 'record' | 'privacy'
 export interface PreviewPosition { x: number; y: number }
 
 export type DiagnosticOutcome = 'running' | 'awaiting_initial' | 'passed' | 'failed' | 'incomplete' | 'cancelled' | 'interrupted' | 'completed'

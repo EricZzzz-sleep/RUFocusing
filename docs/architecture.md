@@ -22,7 +22,7 @@ React controls ↔ local Python API → SQLite → timeline and report
 - `core/session.py`: one active session, a monotonic clock, explicit breaks, one-second observation persistence, and checkpoints.
 - `core/behavior/rules.py`: one face → present; fresh no-face observations sustained for 10 seconds → estimated away; missing/stale/multiple-face evidence → unknown.
 - `core/analytics/focus_blocks.py`: duration totals and longest continuous presence block.
-- `database/store.py` and `schema.sql`: serialized SQLite access, schema version 4, persisted sessions, half-open timeline intervals, and compact observations.
+- `database/store.py` and `schema.sql`: serialized SQLite access, schema version 5, persisted sessions, half-open timeline intervals, and compact observations.
 
 The timeline covers elapsed session time exactly once, including explicit breaks and unknown gaps. Presence changes apply prospectively at the next observation update. An unavailable camera conservatively marks the interval since the previous update unknown. A scheduling/suspend gap longer than three seconds becomes unknown unless an explicit break is active. A crash is recovered at the last saved checkpoint; offline time is not invented as activity.
 
@@ -59,7 +59,26 @@ Setup previews create no session or database observations; they expire after eig
 
 Head angles are approximate Euler rotations in the model coordinate system, without personal calibration. Low light or occlusion can prevent detection and resemble absence. The app labels away as estimated and never treats head orientation or face presence as proof of focus. Models and dependencies retain their own licenses; the repository license covers this project's code.
 
-Tauri, extensions, richer features, and learned classifiers are still placeholders.
+## Packaged desktop runtime
+
+Electron loads the production React build through `rufocusing://app` and forwards an
+allowlist of API routes to the bundled PyInstaller service. The backend selects an
+available loopback port, announces readiness on stdout, and receives its per-launch
+authentication secret and database path on stdin. All packaged endpoints require the
+secret. The renderer never receives it. Lifecycle commands and parent-exit detection
+use that same private pipe. Sleep pauses study; window closure saves an interrupted
+checkpoint and shuts down the process tree.
+
+The frozen service includes native vision dependencies, SQL migrations, and the pinned
+face model. No model download occurs at runtime. Packaging and release instructions
+are in [desktop app](desktop-app.md); storage and data boundaries are in [privacy](privacy.md).
+
+The authenticated storage API adds `GET /api/storage` and JSON POSTs to
+`/api/storage/delete-session` (`session_id`), `/api/storage/clear-history`, and
+`/api/storage/reset-gaze`. They return `bytes`, `sessions`, `gaze_setup_saved`, and
+`can_delete`; mutations may include a `warning` when compaction fails after deletion.
+Deletion rejects active sessions. Existing session/report response formats and schema
+version 5 remain unchanged. The development launcher keeps its existing API contract.
 
 ## Frontend analysis
 
@@ -71,7 +90,7 @@ The backend remains authoritative for active session time and camera settings. P
 
 See [gaze tracking](gaze-tracking.md) for the complete calibration protocol, quality thresholds, APIs, storage, and acceptance checks. The camera worker extracts compact eye features, and the parent session controller owns a separate `GazeTracker`. It samples distinct frames at approximately 5 Hz without making history/database writes at that rate. Gaze intervals are accumulated between approximately one-second checkpoints and committed with session observations. Invalid data and gaps remain unknown. Physical accuracy is unverified.
 
-API health includes `api_version: 4`; the launcher rejects older running services. Version-1 databases migrate transactionally to separate calibration/gaze tables, without altering their existing presence records.
+API health includes `api_version: 5`; the launcher rejects older running services. Version-1 databases migrate transactionally to separate calibration/gaze tables, without altering their existing presence records.
 
 ## Gaze reliability diagnostics
 

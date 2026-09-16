@@ -5,6 +5,7 @@ import hashlib
 import os
 import ssl
 import urllib.request
+import sys
 
 MODEL_PATH = Path(__file__).resolve().parents[2] / "core/models/face_landmarker.task"
 MODEL_SHA256 = "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
@@ -14,6 +15,8 @@ MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/fac
 def ensure_model():
     if MODEL_PATH.is_file() and hashlib.sha256(MODEL_PATH.read_bytes()).hexdigest() == MODEL_SHA256:
         return MODEL_PATH
+    if getattr(sys, 'frozen', False):
+        raise RuntimeError('The bundled face model is missing or damaged. Reinstall RUFocusing.')
     import certifi
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
     temp = MODEL_PATH.with_suffix(".download")
@@ -38,8 +41,8 @@ class FaceDetector:
         import mediapipe as mp
         from mediapipe.tasks import python
         from mediapipe.tasks.python import vision
-        if not MODEL_PATH.is_file():
-            raise RuntimeError("Face model missing. Run make install first.")
+        if not MODEL_PATH.is_file() or hashlib.sha256(MODEL_PATH.read_bytes()).hexdigest() != MODEL_SHA256:
+            raise RuntimeError('The face model is missing or damaged. Reinstall the app, or run make install in development.')
         self.mp = mp
         self.detector = vision.FaceLandmarker.create_from_options(vision.FaceLandmarkerOptions(
             base_options=python.BaseOptions(model_asset_path=str(MODEL_PATH), delegate=python.BaseOptions.Delegate.CPU),

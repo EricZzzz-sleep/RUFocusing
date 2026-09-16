@@ -8,6 +8,7 @@ import SessionDetails from '../components/SessionDetails'
 import CameraPreview from '../components/CameraPreview'
 import GazePanel from '../components/GazePanel'
 import SessionHistory from '../components/SessionHistory'
+import PrivacyStorage from '../components/PrivacyStorage'
 import { inPeriod, localDay, periods } from '../src/analysis'
 import type { Period } from '../src/analysis'
 
@@ -18,7 +19,7 @@ const progress: Record<string, string> = {
 }
 
 export default function Dashboard() {
-  const [page, setPage] = useState<WorkspacePage>(() => window.location.hash === '#record' ? 'record' : 'analysis')
+  const [page, setPage] = useState<WorkspacePage>(() => window.location.hash === '#record' ? 'record' : window.location.hash === '#privacy' ? 'privacy' : 'analysis')
   const pageRef = useRef(page)
   const previewGeneration = useRef(0)
   const [previewPosition, setPreviewPosition] = useState<PreviewPosition | null>(null)
@@ -64,10 +65,10 @@ export default function Dashboard() {
     previewGeneration.current++
     setPage(next)
     setSelected(null)
-    if (next === 'analysis') closePreview()
+    if (next !== 'record') closePreview()
   }
   useEffect(() => {
-    const changed = () => navigate(window.location.hash === '#record' ? 'record' : 'analysis', false)
+    const changed = () => navigate(window.location.hash === '#record' ? 'record' : window.location.hash === '#privacy' ? 'privacy' : 'analysis', false)
     changed()
     window.addEventListener('hashchange', changed)
     window.addEventListener('popstate', changed)
@@ -128,10 +129,10 @@ export default function Dashboard() {
     <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); document.getElementById('main-content')?.focus() }}>Skip to study workspace</a>
     <header className="app-header"><div className="header-inner"><a className="brand" href="#analysis" onClick={event => { event.preventDefault(); navigate('analysis') }} aria-label="RUFocusing home"><span className="brand-mark" aria-hidden="true">r<span>u</span></span>RUFocusing<span className="brand-divider" /><span className="header-section">Study space</span></a><span className={`connection ${connected ? 'online' : ''}`}><i />{connected ? 'Local workspace' : 'Connecting…'}</span></div></header>
     <main id="main-content" tabIndex={-1}>
-      <nav className="workspace-nav" aria-label="Study workspace">{(['analysis', 'record'] as const).map(item => <a key={item} href={`#${item}`} aria-current={page === item ? 'page' : undefined} onClick={event => { event.preventDefault(); navigate(item) }}>{item === 'analysis' ? 'Analysis' : 'Record'}</a>)}</nav>
-      <div className="page-heading"><div><p className="eyebrow">{page === 'analysis' ? 'A LITTLE MORE INTENTION' : 'ONE THING AT A TIME'}</p><h1 ref={heading} tabIndex={-1}>{page === 'analysis' ? 'Your study overview' : 'Your study session'}<span>.</span></h1><p className="intro">{page === 'analysis' ? 'Make time for your work. See how each session unfolds.' : 'Choose a task and make time to study.'}</p></div>{page === 'analysis' && <a className="button secondary session-jump" href="#record" onClick={event => { event.preventDefault(); navigate('record') }}>{active ? 'Return to session' : 'Record a session'}<span aria-hidden="true">→</span></a>}</div>
+      <nav className="workspace-nav" aria-label="Study workspace">{(['analysis', 'record', 'privacy'] as const).map(item => <a key={item} href={`#${item}`} aria-current={page === item ? 'page' : undefined} onClick={event => { event.preventDefault(); navigate(item) }}>{item === 'analysis' ? 'Analysis' : item === 'privacy' ? 'Privacy & storage' : 'Record'}</a>)}</nav>
+      <div className="page-heading"><div><p className="eyebrow">{page === 'analysis' ? 'A LITTLE MORE INTENTION' : page === 'privacy' ? 'ON YOUR DEVICE' : 'ONE THING AT A TIME'}</p><h1 ref={heading} tabIndex={-1}>{page === 'analysis' ? 'Your study overview' : page === 'privacy' ? 'Privacy & storage' : 'Your study session'}<span>.</span></h1><p className="intro">{page === 'analysis' ? 'Make time for your work. See how each session unfolds.' : page === 'privacy' ? 'Manage the data saved on this device.' : 'Choose a task and make time to study.'}</p></div>{page === 'analysis' && <a className="button secondary session-jump" href="#record" onClick={event => { event.preventDefault(); navigate('record') }}>{active ? 'Return to session' : 'Record a session'}<span aria-hidden="true">→</span></a>}</div>
       {page === 'analysis' && active && <div className="notice active-session-status">{active.status === 'break' ? 'On a break' : 'Session running'} · {active.task} · {timer(active.elapsed)}</div>}
-      {!connected && <div className="notice" role="status">{data ? 'Connection lost. Reconnecting to your local session…' : 'Connecting to the local service. If this persists, start the app with make run.'}</div>}
+      {!connected && <div className="notice" role="status">{data ? 'Connection lost. Reconnecting to your local session…' : 'Connecting to the local service. If this persists, restart RUFocusing. In development, use make run.'}</div>}
       {error && <div className="error" role="alert">{error}</div>}
       <div hidden={page !== 'analysis'}>
       <div className="overview-heading"><div><h2>Your study time</h2></div><div className="period-control"><label htmlFor="period">Date range</label><select id="period" value={period} onChange={event => setPeriod(event.target.value as Period)}>{(Object.keys(periods) as Period[]).map(value => <option key={value} value={value}>{periods[value]}</option>)}</select></div></div>
@@ -167,6 +168,7 @@ export default function Dashboard() {
 
       </div>
       </div>
+      {page === 'privacy' && <PrivacyStorage sessions={data?.history ?? []} active={Boolean(active)} onChange={async () => { epoch.current++; setData(await request()); setSelected(null) }} />}
       <footer><span>RUFocusing <span aria-hidden="true">/</span> A little time, well understood.</span><span>Saved on your device</span></footer>
     </main>
     <div className="action-status" role="status" aria-live="polite">{pending ? progress[pending] : ''}</div>

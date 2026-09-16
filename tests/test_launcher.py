@@ -34,7 +34,7 @@ class LauncherTests(unittest.TestCase):
             thread.join(timeout=2)
 
     def test_repeat_run_reopens_page_without_starting_or_stopping_servers(self):
-        with patch.object(run.webbrowser, 'open', return_value=True) as open_page, patch.object(run.subprocess, 'Popen') as start, patch.object(run.os, 'killpg') as kill, redirect_stdout(io.StringIO()):
+        with patch.object(run.webbrowser, 'open', return_value=True) as open_page, patch.object(run.subprocess, 'Popen') as start, patch.object(run, 'stop_process') as kill, redirect_stdout(io.StringIO()):
             self.assertEqual(run.main(self.args), 0)
         open_page.assert_called_once_with(f'http://127.0.0.1:{self.port}')
         start.assert_not_called()
@@ -47,7 +47,7 @@ class LauncherTests(unittest.TestCase):
         open_page.assert_not_called()
 
     def test_different_checkout_is_not_reused_or_stopped(self):
-        with patch('apps.vision.worker.ROOT', Path('/another/checkout')), patch.object(run.os, 'killpg') as kill, redirect_stderr(io.StringIO()):
+        with patch('apps.vision.worker.ROOT', Path('/another/checkout')), patch.object(run, 'stop_process') as kill, redirect_stderr(io.StringIO()):
             self.assertFalse(run.already_running(self.port, self.api_port))
             with self.assertRaises(SystemExit) as error:
                 run.main(self.args)

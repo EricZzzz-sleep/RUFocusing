@@ -420,6 +420,16 @@ class SessionController:
         if not isinstance(enabled, bool):
             raise ValueError('Choose a valid camera setting.')
         with self.lock:
+            try:
+                return self._set_camera(enabled)
+            except Exception:
+                if not enabled:
+                    self.preview_until = 0.0
+                    self.camera.stop()
+                raise
+
+    def _set_camera(self, enabled):
+        with self.lock:
             if not self.active_id:
                 raise ValueError('Start a session before changing its camera setting.')
             self._advance()
@@ -476,6 +486,13 @@ class SessionController:
 
     def pause(self):
         with self.lock:
+            try:
+                return self._pause()
+            finally:
+                self.camera.stop()
+
+    def _pause(self):
+        with self.lock:
             if not self.active_id or self.status != 'running':
                 raise ValueError('There is no running session to pause.')
             self._advance()
@@ -503,6 +520,15 @@ class SessionController:
                 self._start_camera()
 
     def finish(self, status='completed'):
+        # Privacy cleanup must not depend on a successful disk write.
+        with self.lock:
+            try:
+                return self._finish(status)
+            finally:
+                self.preview_until = 0.0
+                self.camera.stop()
+
+    def _finish(self, status='completed'):
         with self.lock:
             if not self.active_id:
                 raise ValueError('There is no active session to end.')
@@ -531,6 +557,14 @@ class SessionController:
                     'preview_active': self.preview_until > self.clock()}
 
     def close(self):
+        try:
+            self._close()
+        finally:
+            self.preview_until = 0.0
+            self.camera.stop()
+            self.store.close()
+
+    def _close(self):
         self.stop_event.set()
         if self.thread:
             self.thread.join(timeout=3)
@@ -545,4 +579,46 @@ class SessionController:
             self.gaze.reset('application_stopped')
             self.diagnostics.sync_calibration(self.gaze, self.clock())
             self._flush_diagnostics(self.clock(), True)
-            self.store.close()
+
+    def suspend(self):
+        """Pause before sleep; wake never silently re-enables a camera."""
+        with self.lock:
+            try:
+                if self.active_id and self.status == 'running':
+                    self.pause()
+            finally:
+                self.preview_until = 0.0
+                self.camera.stop()
+                if self.active_id:
+                    self.status = self.state = 'break'
+
+    def storage_summary(self):
+        with self.lock:
+            return {**self.store.storage_summary(), 'can_delete': self.active_id is None}
+
+    def storage_action(self, action, identifier=None):
+        with self.lock:
+            if self.active_id:
+                raise ValueError('End the current session before changing saved data.')
+            self.stop_preview()
+            if action == 'reset-gaze':
+                self.store.reset_gaze_profile()
+                self.gaze.reset('calibration_reset')
+            elif action in ('delete-session', 'clear-history'):
+                if action == 'delete-session' and (not isinstance(identifier, str) or not identifier):
+                    raise ValueError('Choose a saved session to delete.')
+                self.store.delete_history(identifier if action == 'delete-session' else None)
+            else:
+                raise ValueError('Unknown storage action.')
+            # Prevent cached diagnostics from restoring deleted rows on the next tick.
+            self.diagnostics = Diagnostics()
+            self.exclusion_rows.clear()
+            self.exclusion_active.clear()
+            self.exclusion_dirty.clear()
+            self.diagnostic_error = None
+            warning = None
+            try:
+                self.store.compact()
+            except Exception:
+                warning = 'Data was deleted, but disk space could not be reclaimed. Free some disk space and try again later.'
+            return {**self.storage_summary(), 'warning': warning}

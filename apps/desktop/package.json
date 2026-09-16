@@ -10,20 +10,35 @@
     "dev": "vite",
     "test": "vitest run --environment jsdom",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1",
+    "backend:build": "node scripts/python.mjs",
+    "desktop": "electron .",
+    "test:shell": "node --test electron/*.node-test.mjs",
+    "package:dev": "node scripts/package.mjs --dev",
+    "package:release": "node scripts/package.mjs",
+    "test:backend": "node scripts/backend-smoke.mjs",
+    "test:desktop": "node scripts/smoke.mjs",
+    "test:installer": "node scripts/installer-smoke.mjs"
   },
   "dependencies": {
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "6.1.1",
+    "electron": "44.4.1",
+    "electron-builder": "26.15.3",
     "jsdom": "^29.1.1",
     "typescript": "~6.0.2",
     "vite": "8.2.2",
     "vitest": "^4.1.11"
-  }
+  },
+  "main": "electron/main.mjs",
+  "description": "Local-only study sessions and camera analysis",
+  "author": "RUFocusing contributors",
+  "license": "Apache-2.0"
 }

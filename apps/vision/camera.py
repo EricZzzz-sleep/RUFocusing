@@ -4,9 +4,10 @@ import logging
 import pickle
 import queue
 import time
+import sys
 from core.features.feature_engine import Observation
 
-STARTUP_TIMEOUT = 15.0
+STARTUP_TIMEOUT = 60.0 if getattr(sys, 'frozen', False) else 15.0
 STALE_AFTER = 2.0
 
 
@@ -43,6 +44,9 @@ class LatestFrame:
         return pickle.loads(payload)
 
     def close(self):
+        # The worker has already stopped; erase its last packet before releasing IPC.
+        if self.buffer is not None:
+            memoryview(self.buffer).cast('B')[:] = b'\x00' * len(self.buffer)
         self.buffer = self.size = self.lock = None
 
 
@@ -77,14 +81,14 @@ def _publish(output, observation, jpeg=None):
 
 def _capture(index, stop, output):
     capture = detector = None
-    failure_message = 'Face detection could not start. Check the terminal for details, then select Retry camera.'
+    failure_message = 'Face detection could not start. Select Retry camera or reinstall RUFocusing if this continues.'
     try:
         import cv2
         from apps.vision.face import FaceDetector
         detector = FaceDetector()
         if stop.is_set():
             return
-        failure_message = 'Could not open the camera. Check camera access for Python or your launching app in system settings, close other apps using the camera, then select Retry camera.'
+        failure_message = 'Could not open the camera. Allow camera access for RUFocusing (Python in development) in system settings, close other apps using the camera, then select Retry camera.'
         capture = cv2.VideoCapture(index)
         capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
@@ -96,7 +100,7 @@ def _capture(index, stop, output):
             ok, frame = capture.read()
             if not ok:
                 raise RuntimeError('The camera returned no frame.')
-            failure_message = 'Face detection stopped. Check the terminal for details, then select Retry camera.'
+            failure_message = 'Face detection stopped. Select Retry camera. Restart RUFocusing if this continues.'
             count, pose = detector.detect(frame, started * 1000)
             message = 'Face detected.' if count == 1 else ('No face detected; away is estimated after 10 seconds.' if count == 0 else 'Multiple faces detected; presence is unknown.')
             if not stop.is_set():
@@ -141,7 +145,7 @@ class Camera:
             self.latest = Observation(self.clock(), message='Camera processing stopped unexpectedly. Select Retry camera.', camera_status='unavailable')
         elif self.latest.camera_status == 'starting' and age >= STARTUP_TIMEOUT:
             self._release_process()
-            self.latest = Observation(self.clock(), message='Camera startup took longer than 15 seconds. Check camera access and the terminal, then select Retry camera.', camera_status='unavailable')
+            self.latest = Observation(self.clock(), message='Camera startup timed out. Check camera access in system settings, then select Retry camera.', camera_status='unavailable')
         elif self.latest.available and not 0 <= age <= STALE_AFTER:
             self.latest = Observation(self.clock(), message='Camera observations stopped updating. Select Retry camera.', camera_status='unavailable')
         if not self.latest.available:
@@ -164,7 +168,7 @@ class Camera:
         except (OSError, RuntimeError):
             logging.exception('Could not start camera process')
             self._release_process()
-            self.latest = Observation(self.clock(), message='The camera process could not start. Check the terminal for details, then select Retry camera.', camera_status='unavailable')
+            self.latest = Observation(self.clock(), message='The camera process could not start. Select Retry camera, or restart RUFocusing.', camera_status='unavailable')
         finally:
             if receiver:
                 receiver.close()

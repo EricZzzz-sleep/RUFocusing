@@ -1,0 +1,78 @@
+name: Desktop installers
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      signed:
+        description: Build signed public release candidates (requires signing secrets)
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            arch: arm64
+          - os: windows-2025
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14.3'
+          architecture: ${{ matrix.arch }}
+      - name: Install build dependencies
+        run: |
+          python -m pip install -r apps/desktop/packaging/requirements.txt
+          npm ci --prefix apps/desktop
+      - name: Run regression tests
+        run: |
+          python -m unittest discover -s tests -v
+          npm --prefix apps/desktop test
+          npm --prefix apps/desktop run test:shell
+          npm --prefix apps/desktop run build
+      - name: Build development installer
+        if: ${{ !inputs.signed }}
+        env:
+          RUFOCUSING_PYTHON: python
+        run: npm --prefix apps/desktop run package:dev
+      - name: Build signed release candidate
+        if: ${{ inputs.signed }}
+        env:
+          RUFOCUSING_PYTHON: python
+          CSC_LINK: ${{ runner.os == 'macOS' && secrets.MAC_CSC_LINK || secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.MAC_CSC_KEY_PASSWORD || secrets.WIN_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm --prefix apps/desktop run package:release
+      - name: Test bundled backend and desktop window
+        run: |
+          npm --prefix apps/desktop run test:backend
+          npm --prefix apps/desktop run test:desktop
+      - name: Test installed application
+        run: npm --prefix apps/desktop run test:installer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RUFocusing-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.exe
+            apps/desktop/release/SHA256SUMS*.txt
+            apps/desktop/build/*NOTICES.txt
+            apps/desktop/packaging/MODEL-NOTICE.txt
+            apps/desktop/build/desktop-smoke.png
+          if-no-files-found: error

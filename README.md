@@ -2,7 +2,20 @@
 
 A local study timer with a simple timeline of **Deep study**, **Normal**, and **Distracted** periods. Built with React, TypeScript, and Python. Sessions and gaze setup stay in SQLite on your device; video is never saved.
 
-## Run
+## Downloadable desktop app
+
+The Electron app packages this local workspace for **macOS Apple Silicon** and
+**Windows x64**. It works offline, needs no account or app password, and never saves
+video. Reports remain in the device's local app-data folder. **Privacy & storage**
+provides storage usage and confirmed deletion of sessions, history, and gaze setup.
+
+See [desktop installation, builds, signing, and validation](docs/desktop-app.md) and
+[local privacy details](docs/privacy.md). Build a development installer with
+`npm --prefix apps/desktop run package:dev` after installing the documented packaging
+dependencies. Public installers require signing credentials; development artifacts
+are not notarized public releases.
+
+## Run in development
 
 Requires Python 3.12+, Node.js 22.12+, npm, and make. Tested on an Apple Silicon Mac.
 
