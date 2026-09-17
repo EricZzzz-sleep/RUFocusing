@@ -31,7 +31,7 @@ describe('Guided reliability diagnostics', () => {
     for (const key of ['showModal', 'close']) Reflect.deleteProperty(HTMLDialogElement.prototype, key)
     Reflect.deleteProperty(document.documentElement, 'requestFullscreen'); Reflect.deleteProperty(document, 'exitFullscreen'); Reflect.deleteProperty(document, 'fullscreenElement')
   })
-  async function render(visible = true) { await act(async () => root.render(<DiagnosticsPanel enabled busy={false} visible={visible} inSession onCollectionChange={changed} />)) }
+  async function render(visible = true, enabled = true) { await act(async () => root.render(<DiagnosticsPanel enabled={enabled} busy={false} visible={visible} inSession onCollectionChange={changed} />)) }
   async function click(text: string) { await act(async () => [...host.querySelectorAll('button')].find(button => button.textContent === text)!.click()) }
 
   it('waits for rendering before acknowledging targets and completes all nine', async () => {
@@ -65,6 +65,24 @@ describe('Guided reliability diagnostics', () => {
     await render(); await click('Check gaze accuracy'); await render(false)
     await act(async () => resolve({ ...initial(), check: record() }))
     expect(host.querySelector('dialog')).toBeNull()
+    expect(vi.mocked(diagnosticCommand).mock.calls).toContainEqual(['checks', 'cancel', { id: 'check-id' }])
+    expect(document.fullscreenElement).toBeNull()
+  })
+
+  it('cancels a late accuracy check after the camera is disabled', async () => {
+    let resolve!: (value: DiagnosticState) => void
+    vi.mocked(diagnosticCommand).mockImplementation(async (_group, action) => action === 'start' ? new Promise(done => { resolve = done }) : initial())
+    await render(); await click('Check gaze accuracy'); await render(true, false)
+    await act(async () => resolve({ ...initial(), check: record() }))
+    expect(host.querySelector('dialog')).toBeNull()
+    expect(vi.mocked(diagnosticCommand).mock.calls).toContainEqual(['checks', 'cancel', { id: 'check-id' }])
+    expect(document.fullscreenElement).toBeNull()
+  })
+
+  it('releases an owned check and fullscreen on unmount', async () => {
+    vi.mocked(diagnosticCommand).mockImplementation(async (_group, action) => action === 'start' ? { ...initial(), check: { ...record(), collecting: true } } : initial())
+    await render(); await click('Check gaze accuracy')
+    await act(async () => root.render(null))
     expect(vi.mocked(diagnosticCommand).mock.calls).toContainEqual(['checks', 'cancel', { id: 'check-id' }])
     expect(document.fullscreenElement).toBeNull()
   })

@@ -53,6 +53,12 @@ class SessionController:
 
     def _restore_gaze_setup(self):
         profile = self.store.gaze_profile()
+        # Failed-result writes may be pending after a disk error. Do not restore
+        # their rejected model while the diagnostic persistence retry is waiting.
+        diagnostics = getattr(self, 'diagnostics', None)
+        if profile and diagnostics and any(record['kind'] == 'check' and record['status'] == 'failed'
+                                          and record['calibration_id'] == profile['id'] for record in diagnostics.records.values()):
+            return False
         restored = profile is not None and self.gaze.restore(profile)
         if restored and self.current_display is not None:
             self.gaze.confirm_display(self.current_display, self.clock())
@@ -540,6 +546,7 @@ class SessionController:
             self._suspend_gaze('session_ended')
             self.diagnostics.sync_calibration(self.gaze, self.clock())
             self._flush_diagnostics(self.clock(), True)
+            self.camera.stop()
             self.store.set_status(identifier, status, utc(self.wall_clock()))
             self.active_id = None
             self.gaze_pending = []

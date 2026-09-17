@@ -1,12 +1,12 @@
 # Experimental gaze reliability checks
 
-> Developer protocol reference. The simplified user interface no longer exposes accuracy checks, reliability trials, result tables, or downloads. The APIs below remain available for development. User gaze setup is saved across sessions; see [saved setup](../README.md#saved-gaze-setup). UI walkthroughs below describe the previous diagnostics release.
+> Developer protocol reference. In the local development app, open `http://127.0.0.1:5173/?diagnostics=1#record` to use the existing accuracy checks and reliability trials. Without that query, the controls stay hidden. Production builds and installers exclude the diagnostics interface even with the query. User gaze setup is saved across sessions; see [saved setup](../README.md#saved-gaze-setup).
 
 The checks measure the existing gaze estimator. They do not fit a model, recognize a person, or measure concentration. Physical performance on your webcam is still unverified.
 
 ## Run an accuracy check
 
-1. Open **Record**. Enable webcam observations and complete **Calibrate gaze** on your display.
+1. Start the local development app, open the diagnostics URL above, and enable **Use camera** on **Record**. Complete **Set up gaze** on your display.
 2. In **Gaze reliability**, select lighting, glasses, seating distance, and optional notes. Select **Check gaze accuracy**.
 3. Follow each of nine targets. The server shuffles the combinations of 20%, 50%, and 80% coordinates for each attempt. The estimated point is hidden while collecting.
 4. Each target settles for 500 ms, then measures exactly three seconds. Blinks, missing frames, and bad geometry do not extend the window. A normal check takes about 32 seconds plus request/rendering time.
@@ -14,7 +14,7 @@ The checks measure the existing gaze estimator. They do not fit a model, recogni
 
 A complete target needs ten distinct valid observations spanning at least two seconds. All nine targets must be complete for the check to pass or fail the error gates. Otherwise the result is **Incomplete**; it cannot establish accuracy. Error uses valid production predictions only, including smoothing, and is pixel distance divided by the display diagonal. No unavailable or outside-display estimate is clamped or assigned an error coordinate.
 
-A complete check passes with median error at most 10% and p90 at most 20% of the display diagonal. A failed check clears calibration and suppresses later estimates until recalibration. An incomplete check preserves accepted calibration unless another invalidation rule applies. Coverage is shown alongside error and has **no pass/fail threshold**.
+A complete check passes with median error at most 10% and p90 at most 20% of the display diagonal. A failed check clears the matching saved gaze profile and suppresses later estimates until recalibration. The failed result and profile invalidation commit together; historical calibration records remain available. Pending failed-result writes also block reuse in the running app. An incomplete check preserves accepted calibration unless another invalidation rule applies. Coverage is shown alongside error and has **no pass/fail threshold**.
 
 Escape, Cancel, leaving fullscreen, hiding the browser tab, or switching to Analysis cancels a check. A disconnected owner expires after three seconds; refreshing cannot adopt its collection. Completed targets and partial target aggregates are retained. Ordinary polling does not keep an abandoned check alive.
 
@@ -58,9 +58,33 @@ Automated checks use synthetic features and temporary databases. They cover fixe
 
 The browser walkthrough uses the actual API and production estimator with a synthetic camera at five Hz. It covers calibration followed by nine independent accuracy targets, result inspection/download, initial-trial cancellation, mobile layouts, accessible dialogs/tables, and saved-session result links. These results verify integration, **not webcam accuracy**. No estimator thresholds were tuned from these synthetic results.
 
+## Isolated local trial workspace
+
+Use a separate local database for physical trials. From the repository root, run these
+in two terminals after installing the usual development dependencies:
+
+```sh
+.venv/bin/python -m apps.vision.worker --port 18766 --frontend-port 5174 --database .data/reliability.sqlite3
+```
+
+```sh
+RUFOCUSING_API_PORT=18766 npm --prefix apps/desktop run dev -- --port 5174
+```
+
+Open `http://127.0.0.1:5174/?diagnostics=1#record`. Start a camera-enabled study
+session, complete gaze setup, then select **Start reliability trial**. Run each due
+check when prompted. Export the trial and its checks through **Recent diagnostics**;
+record their IDs below. End the session normally after the final check. Closing only
+a preview during an active session keeps tracking on. Stop both terminals after use.
+
+Repeat with a fresh calibration for each trial across at least two dates. Record
+normal-lighting acceptance separately from the additional difficult-condition checks.
+No camera screenshots or video should be retained; use local numerical diagnostic
+results. Session observation cleanup preserves these summaries.
+
 ## Physical acceptance record — pending
 
-Run three fresh-calibration trials across at least two days on your webcam/display. Keep every attempt, including failures and incomplete checks. Record the diagnostic identifiers or exported JSON filenames below. A trial used for acceptance needs complete, passing checks at the start, around 10 minutes, and the end. Coverage is measured as a baseline only.
+Physical trials have not been performed by the automated implementation checks. A participating person must run three fresh-calibration trials across at least two days on the webcam/display. Keep every attempt, including failures and incomplete checks. Record the diagnostic identifiers or exported JSON filenames below. A trial used for acceptance needs complete, passing checks at the start, around 10 minutes, and the end. Coverage is measured as a baseline only.
 
 | Trial | Date / conditions | Calibration ID | Initial / mid / final check IDs | Median / p90 at each check | Trial coverage | Outcome |
 | --- | --- | --- | --- | --- | --- | --- |

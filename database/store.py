@@ -12,6 +12,7 @@ class Store:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.path = path
+        self.storage_warning = None
         self.connection = sqlite3.connect(path, check_same_thread=False)
         if os.name != 'nt':
             path.chmod(0o600)
@@ -21,6 +22,7 @@ class Store:
             self.connection.close()
             raise RuntimeError("This database was created by a newer application version.")
         self.connection.execute('PRAGMA foreign_keys = ON')
+        self.connection.execute('PRAGMA secure_delete = ON')
         if version < 5:
             base = Path(__file__).with_name('schema.sql').read_text() if version == 0 else ''
             migration = '\n'.join(Path(__file__).with_name(name).read_text() for target, name in
@@ -35,6 +37,11 @@ class Store:
         with self.connection:
             self.connection.execute('UPDATE diagnostic_exclusions SET start=MIN(start,(SELECT elapsed FROM sessions WHERE id=session_id)), end=(SELECT elapsed FROM sessions WHERE id=session_id) WHERE end IS NULL')
             self.connection.execute("UPDATE sessions SET status='interrupted', ended_at=checkpoint_at WHERE status IN ('running','break')")
+            self._delete_finished_observations()
+
+        # Also reclaim pages left behind if the previous process stopped between
+        # committing cleanup and compaction. Reports use intervals, not samples.
+        self._reclaim_observation_space()
 
         for row in self.connection.execute("SELECT id FROM diagnostic_runs WHERE status IN ('running','awaiting_initial')").fetchall():
             record = self.diagnostic(row[0])
@@ -56,6 +63,12 @@ class Store:
             buckets = [(-1, record['durations'])] + [(bucket['index'], bucket['durations']) for bucket in record.get('buckets', [])]
             self.connection.executemany('INSERT INTO diagnostic_durations VALUES (?,?,?,?)',
                 [(record['id'], index, reason, seconds) for index, durations in buckets for reason, seconds in durations.items()])
+            # Persist rejection with the result so restart cannot revive a model
+            # that failed an independent accuracy check. Historical models remain.
+            if record['kind'] == 'check' and record['status'] == 'failed':
+                profile = self.gaze_profile()
+                if profile and profile['id'] == record['calibration_id']:
+                    self.connection.execute('DELETE FROM gaze_profile')
 
     def diagnostic(self, identifier):
         row = self.connection.execute('SELECT record_json FROM diagnostic_runs WHERE id=?', (identifier,)).fetchone()
@@ -215,6 +228,29 @@ class Store:
     def set_status(self, identifier, status, ended_at=None):
         with self.connection:
             self.connection.execute("UPDATE sessions SET status=?,ended_at=? WHERE id=?", (status, ended_at, identifier))
+            if status in ('completed', 'interrupted'):
+                self._delete_finished_observations(identifier)
+        if status in ('completed', 'interrupted'):
+            self._reclaim_observation_space()
+
+    def _delete_finished_observations(self, identifier=None):
+        """Commit sample deletion with the final status, preserving report inputs."""
+        query = "SELECT id FROM sessions WHERE status IN ('completed','interrupted')"
+        args = ()
+        if identifier is not None:
+            query += ' AND id=?'
+            args = (identifier,)
+        for table in ('observations', 'gaze_observations'):
+            self.connection.execute(f'DELETE FROM {table} WHERE session_id IN ({query})', args)
+
+    def _reclaim_observation_space(self):
+        try:
+            if self.connection.execute('PRAGMA freelist_count').fetchone()[0]:
+                self.compact()
+        except (sqlite3.Error, OSError):
+            # Cleanup has committed. A full disk must not make a saved session
+            # appear to have failed; retry reclamation at next startup/end.
+            self.storage_warning = 'Temporary camera observations were deleted, but disk space could not be reclaimed. Free some disk space and restart the app to retry.'
 
     def set_camera(self, identifier, enabled):
         with self.connection:
@@ -244,7 +280,8 @@ class Store:
         files = [self.path, Path(str(self.path) + '-wal'), Path(str(self.path) + '-shm'), Path(str(self.path) + '-journal')]
         return {'bytes': sum(file.stat().st_size for file in files if file.is_file()),
                 'sessions': self.connection.execute('SELECT COUNT(*) FROM sessions').fetchone()[0],
-                'gaze_setup_saved': self.gaze_profile() is not None}
+                'gaze_setup_saved': self.gaze_profile() is not None,
+                'warning': self.storage_warning}
 
     def delete_history(self, identifier=None):
         """Delete history atomically, retaining profiles shared by surviving sessions."""
@@ -272,6 +309,7 @@ class Store:
     def compact(self):
         # Never called while recording. VACUUM preserves existing reports and schema.
         self.connection.execute('VACUUM')
+        self.storage_warning = None
 
     def close(self):
         self.connection.close()

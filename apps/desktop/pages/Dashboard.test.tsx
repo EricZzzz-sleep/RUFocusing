@@ -6,6 +6,7 @@ import type { AppState, CameraStatus, StudySession } from '../src/types'
 import Dashboard from './Dashboard'
 
 vi.mock('../components/GazePanel', () => ({ default: () => null }))
+vi.mock('../components/DiagnosticsPanel', () => ({ default: ({ visible }: { visible: boolean }) => <section data-testid="diagnostics" data-visible={visible}>Development gaze diagnostics</section> }))
 vi.mock('../components/StudyPatternReport', () => ({ default: () => <p>Study patterns report</p> }))
 vi.mock('../src/api', () => ({ request: vi.fn(), jsonRequest: vi.fn().mockResolvedValue([]) }))
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
@@ -25,7 +26,7 @@ describe('Dashboard camera controls', () => {
   let host: HTMLDivElement
   let root: Root
   beforeEach(() => {
-    window.history.replaceState(null, '', '#record')
+    window.history.replaceState(null, '', '/#record')
     vi.useFakeTimers()
     vi.mocked(jsonRequest).mockResolvedValue([])
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 204 })))
@@ -41,6 +42,7 @@ describe('Dashboard camera controls', () => {
     Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal')
     Reflect.deleteProperty(HTMLDialogElement.prototype, 'close')
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
     vi.useRealTimers()
   })
 
@@ -51,6 +53,20 @@ describe('Dashboard camera controls', () => {
       window.dispatchEvent(new HashChangeEvent('hashchange'))
     })
   }
+
+  it('exposes diagnostics only with an explicit development query', async () => {
+    vi.mocked(request).mockResolvedValue(state('off'))
+    await act(async () => root.render(<Dashboard />))
+    expect(host.querySelector('[data-testid="diagnostics"]')).toBeNull()
+    window.history.replaceState(null, '', '/?diagnostics=1#record')
+    await act(async () => root.render(<Dashboard />))
+    expect(host.querySelector('[data-testid="diagnostics"]')).not.toBeNull()
+    await navigateTo('analysis')
+    expect(host.querySelector('[data-testid="diagnostics"]')?.getAttribute('data-visible')).toBe('false')
+    vi.stubEnv('DEV', false)
+    await act(async () => root.render(<Dashboard />))
+    expect(host.querySelector('[data-testid="diagnostics"]')).toBeNull()
+  })
 
   it('defaults to Analysis, normalizes unknown routes, and supports browser navigation', async () => {
     window.history.replaceState(null, '', '/')
@@ -232,6 +248,23 @@ describe('Dashboard camera controls', () => {
     expect(host.querySelector('[role="timer"]')?.textContent).toBe('00:01:30')
     expect(host.querySelector('#task')).toBeNull()
     expect(host.textContent).not.toContain('Last received time')
+  })
+
+  it('does not present a stalled or late state response as a ready camera', async () => {
+    vi.mocked(request).mockResolvedValueOnce(activeState(true))
+    let delayed!: (value: AppState) => void
+    vi.mocked(request).mockImplementationOnce(() => new Promise(resolve => { delayed = resolve }))
+    await act(async () => root.render(<Dashboard />))
+    expect(host.textContent).toContain('Camera: Ready')
+    await act(async () => vi.advanceTimersByTimeAsync(2000))
+    expect(host.textContent).toContain('Camera: Unavailable')
+    expect(host.textContent).toContain('Last received time')
+    await act(async () => vi.advanceTimersByTimeAsync(1100))
+    await act(async () => delayed(activeState(true)))
+    expect(host.textContent).toContain('Camera: Unavailable')
+    vi.mocked(request).mockResolvedValue(activeState(true))
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    expect(host.textContent).toContain('Camera: Ready')
   })
 
   it('toggles observations without changing the timer and closes the preview on disable', async () => {

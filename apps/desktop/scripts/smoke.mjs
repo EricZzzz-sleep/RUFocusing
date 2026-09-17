@@ -20,6 +20,9 @@ try {
   application.process().on('exit', (code, signal) => console.log('Electron exit:', code, signal));
   let page = await application.firstWindow();
   await page.getByRole('link', { name: 'Record', exact: true }).waitFor({ timeout: 45000 });
+  await page.goto('rufocusing://app/?diagnostics=1#record');
+  await page.getByRole('link', { name: 'Record', exact: true }).waitFor();
+  assert.equal(await page.locator('.diagnostics-panel').count(), 0, 'Development diagnostics must not be exposed in production.');
   const preferences = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences());
   assert.equal(preferences.sandbox, true);
   assert.equal(preferences.contextIsolation, true);

@@ -136,6 +136,24 @@ class PersistentSetupTests(unittest.TestCase):
         self.assertTrue(self.c.gaze_snapshot()['observation']['valid'])
         self.assertEqual(self.c.store.gaze_profile(), self.saved)
 
+    def test_stale_gaze_never_extends_intervals_or_erases_setup(self):
+        self.c.start('Freshness', 'Math', True)
+        self.clock.value += .2
+        frame = replace(observation(self.clock()), camera_config=self.config)
+        self.camera.snapshot = lambda: frame if self.camera.started else Observation(self.clock())
+        self.c.gaze_snapshot()
+        self.assertTrue(self.c.gaze.latest.valid)
+        for _ in range(10):
+            self.clock.value += .2
+            self.c.snapshot()
+        self.assertFalse(self.c.gaze.latest.valid)
+        saved = self.c.finish()
+        intervals = self.c.gaze_details(saved['id'])['intervals']
+        tracked = [row for row in intervals if row['state'] not in ('unknown', 'break')]
+        self.assertTrue(tracked)
+        self.assertTrue(all(row['end'] <= .2 + .75 for row in tracked))
+        self.assertEqual(self.c.store.gaze_profile(), self.saved)
+
     def test_cancel_failed_replacement_and_abandonment_restore_previous_profile(self):
         for mode in ('cancel', 'fail', 'abandon'):
             with self.subTest(mode=mode):

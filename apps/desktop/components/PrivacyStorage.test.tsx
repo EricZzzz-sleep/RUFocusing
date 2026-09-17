@@ -12,6 +12,15 @@ const sessions = [{ id: 'saved', task: 'Private task', started_at: '2026-09-16T1
 afterEach(() => vi.resetAllMocks())
 
 describe('Privacy and storage', () => {
+  it('shows automatic cleanup failures returned by storage status', async () => {
+    const warning = 'Temporary camera observations were deleted, but disk space could not be reclaimed.'
+    vi.mocked(jsonRequest).mockResolvedValue({ ...storage, warning })
+    const host = document.createElement('div'); const root = createRoot(host)
+    try {
+      await act(async () => root.render(<PrivacyStorage sessions={sessions} active={false} onChange={vi.fn()} />))
+      expect(host.querySelector('[role="status"]')?.textContent).toBe(warning)
+    } finally { await act(async () => root.unmount()) }
+  })
   it('requires confirmation and refreshes history only after deletion succeeds', async () => {
     vi.mocked(jsonRequest).mockResolvedValue(storage)
     const host = document.createElement('div'); document.body.append(host)

@@ -9,8 +9,15 @@ preview and bounded processing buffers, releases them when tracking stops, and
 never creates video or image recordings. Camera cleanup also runs when a session
 cannot be saved. Failed or stale frames cannot remain visible in the preview.
 
-The database retains numerical presence/gaze observations, timelines, calibration
-parameters, diagnostics, task names, reflections and tags needed for local reports.
+Numerical presence/gaze observations are temporary local records during a session.
+Once its timeline is saved and the session ends, those individual observations are
+deleted automatically. Closing the app also ends the session; after a crash, cleanup
+runs on the next launch at the last saved checkpoint. Startup also removes observations
+left by older app versions. Pausing for a break does not finish the session.
+
+The database retains timelines, calibration parameters, diagnostic summaries, task
+names, reflections and tags needed for local reports. Reports are calculated from
+saved intervals and remain available after individual observations are deleted.
 Full face meshes and raw calibration training samples are not saved. These estimates
 measure observed presence, not identity or mental concentration.
 
@@ -55,7 +62,12 @@ removes historical diagnostics; resetting gaze setup preserves historical report
 Deletion is available after the active session ends. Database compaction reclaims free
 pages; if it fails, the UI distinguishes successful deletion from unsuccessful space
 reclamation. Deletion is not a promise of forensic erasure from SSDs, backups or snapshots.
-There are no video recordings to accumulate or delete after analysis.
+Automatic observation cleanup also compacts the database when free pages remain.
+If space reclamation fails, Privacy & storage displays a warning; the saved report
+and observation deletion still succeed, and reclamation is retried on the next launch
+or session end. SQLite overwrites deleted sample content in its database pages, but
+this does not erase copies held by the OS or backups. There are no video recordings
+to accumulate or delete after analysis.
 
 ## Separate public website
 

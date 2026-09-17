@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { request } from '../src/api'
 import type { AppState, StudySession, WorkspacePage, PreviewPosition } from '../src/types'
@@ -11,6 +11,9 @@ import SessionHistory from '../components/SessionHistory'
 import PrivacyStorage from '../components/PrivacyStorage'
 import { inPeriod, localDay, periods } from '../src/analysis'
 import type { Period } from '../src/analysis'
+
+// The diagnostics module and its controls are excluded from production bundles.
+const DiagnosticsPanel = import.meta.env.DEV ? lazy(() => import('../components/DiagnosticsPanel')) : null
 
 const progress: Record<string, string> = {
   start: 'Starting session…', pause: 'Starting break…', resume: 'Resuming session…',
@@ -28,6 +31,8 @@ export default function Dashboard() {
   const [task, setTask] = useState('')
   const [mode, setMode] = useState('Math')
   const [camera, setCamera] = useState(false)
+  const [diagnosticCollecting, setDiagnosticCollecting] = useState(false)
+  const diagnosticsEnabled = import.meta.env.DEV && new URLSearchParams(window.location.search).get('diagnostics') === '1'
   const [previewOpen, setPreviewOpen] = useState(false)
   const [pending, setPending] = useState<string | null>(null)
   const busy = pending !== null
@@ -38,6 +43,7 @@ export default function Dashboard() {
   const busyRef = useRef(false)
   const pendingPreviewClose = useRef(false)
   const epoch = useRef(0)
+  const lastReceived = useRef(-Infinity)
 
   useEffect(() => {
     let stopped = false
@@ -45,9 +51,14 @@ export default function Dashboard() {
     async function poll() {
       const version = epoch.current
       if (!busyRef.current) {
+        const began = performance.now()
         try {
           const next = await request()
-          if (!stopped && version === epoch.current) { setData(next); setConnected(true) }
+          if (!stopped && version === epoch.current) {
+            const timely = performance.now() - began < 2000
+            lastReceived.current = timely ? performance.now() : -Infinity
+            setData(next); setConnected(timely)
+          }
         } catch {
           if (!stopped && version === epoch.current) setConnected(false)
         }
@@ -55,7 +66,8 @@ export default function Dashboard() {
       if (!stopped) timeout = setTimeout(poll, 1000)
     }
     void poll()
-    return () => { stopped = true; clearTimeout(timeout) }
+    const watchdog = setInterval(() => { if (performance.now() - lastReceived.current >= 2000) setConnected(false) }, 100)
+    return () => { stopped = true; clearTimeout(timeout); clearInterval(watchdog) }
   }, [])
 
   function navigate(next: WorkspacePage, push = true) {
@@ -82,6 +94,7 @@ export default function Dashboard() {
     busyRef.current = true; epoch.current++; setPending(name); if (name !== 'preview/stop') setError('')
     try {
       const next = await request(`/api/${cameraCommand ? 'camera' : 'sessions'}/${name}`, body)
+      lastReceived.current = performance.now()
       setData(next); setConnected(true)
       if (next.finished) { navigate('analysis'); setSelected(next.finished); setPreviewOpen(false) }
       if (name === 'pause' || (name === 'camera' && !next.active?.camera_enabled)) setPreviewOpen(false)
@@ -161,8 +174,11 @@ export default function Dashboard() {
               {(observing || (camera && !active)) && <button type="button" className="text-button" disabled={busy || !connected || (cameraStatus === 'starting' && previewOpen)} onClick={openPreview}>{cameraStatus === 'unavailable' ? 'Retry camera' : 'Show camera preview'}</button>}
               <span className="muted small">{active?.status === 'break' ? 'Camera paused during break.' : 'Processed locally. No video saved.'}</span>
             </div>
-            {cameraStatus === 'unavailable' && observing && <p className="setup-notice" role="status">Camera unavailable. Check access and retry.</p>}
-            <GazePanel visible={page === 'record'} enabled={observing && connected && cameraStatus === 'ready'} busy={busy} />
+            {cameraStatus === 'unavailable' && observing && <p className="setup-notice" role="status">{cameraMessage} {active && 'Your timer continues. Missing tracking is shown as a gap.'}</p>}
+            <GazePanel visible={page === 'record'} enabled={observing && connected && cameraStatus === 'ready'} cameraStatus={cameraStatus} busy={busy || diagnosticCollecting} />
+            {diagnosticsEnabled && DiagnosticsPanel && <Suspense fallback={<p role="status">Loading local diagnostics…</p>}><DiagnosticsPanel
+              visible={page === 'record'} enabled={observing && connected && cameraStatus === 'ready'} busy={busy}
+              inSession={Boolean(active)} onCollectionChange={setDiagnosticCollecting} /></Suspense>}
           </section>
         </div>
 

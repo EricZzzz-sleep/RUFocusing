@@ -111,6 +111,37 @@ class DesktopTests(unittest.TestCase):
         self.controller.resume()
         self.assertTrue(self.camera.started)
 
+    def test_pause_disable_end_and_suspend_during_camera_startup_do_not_reopen_it(self):
+        for operation in ('pause', 'disable', 'finish', 'suspend'):
+            with self.subTest(operation=operation):
+                self.camera.starting = True
+                self.controller.start('Starting camera', 'Math', True)
+                starts = self.camera.starts
+                if operation == 'disable':
+                    self.controller.set_camera(False)
+                else:
+                    getattr(self.controller, operation)()
+                self.camera.starting = False
+                for _ in range(4):
+                    self.clock.value += 1
+                    self.controller.snapshot()
+                self.assertFalse(self.camera.started)
+                self.assertIsNone(self.controller.preview_frame())
+                self.assertEqual(self.camera.starts, starts)
+                if self.controller.active_id:
+                    self.controller.finish()
+
+    def test_missing_camera_evidence_does_not_stop_timer_or_become_distraction(self):
+        self.controller.start('Camera failure', 'Math', True)
+        self.camera.available = False
+        for _ in range(15):
+            self.clock.value += 1
+            current = self.controller.snapshot()
+        self.assertEqual(current['active']['elapsed'], 15)
+        self.assertEqual(current['active']['totals']['unknown'], 15)
+        self.assertEqual(current['active']['totals']['away'], 0)
+        self.assertEqual(current['active']['study_periods']['totals']['distracted'], 0)
+
     def test_all_desktop_endpoints_require_secret_and_reject_foreign_origin(self):
         secret = 'a' * 64
         server = ThreadingHTTPServer(('127.0.0.1', 0), make_handler(self.controller, secret=secret))

@@ -15,6 +15,9 @@ or update service. The public website is a separate application.
   camera access to RUFocusing in system settings if requested, then retry.
 - Minimizing keeps a session running. Sleep pauses it; resume explicitly after waking.
   Closing the window quits, releases the camera, and saves an interrupted session.
+- Ending a session automatically deletes its temporary numerical camera observations
+  and reclaims unused database space. Reports and timelines remain available. Cleanup
+  also runs on startup for interrupted sessions and data saved by older versions.
 - Privacy & storage shows database size and provides confirmed deletion of one
   session, all history, or saved gaze setup. End an active session before deletion.
 - Update by installing a newer release. The database lives outside the installation
@@ -90,11 +93,14 @@ release. Dependencies and model licenses are bundled in Resources (macOS) or res
 .venv/bin/python -m unittest discover -s tests -v
 npm --prefix apps/desktop test
 npm --prefix apps/desktop run test:shell
+npm --prefix apps/desktop run test:reliability-ui
 npm --prefix apps/desktop run build
 npm --prefix apps/desktop run test:backend
 npm --prefix apps/desktop run test:desktop
 npm --prefix apps/desktop run test:installer
 ```
+
+The development diagnostics browser check requires Playwright Chromium (`npm --prefix apps/desktop exec playwright install chromium`). It uses synthetic responses and never opens a camera. See [the physical trial workspace and acceptance record](gaze-reliability.md#isolated-local-trial-workspace) for operator-run accuracy checks.
 
 The backend and desktop checks require `backend:build` first. For a packaged executable, set
 `RUFOCUSING_TEST_EXECUTABLE` to its path before `test:desktop`. The test script sets
@@ -107,8 +113,9 @@ because NSIS also updates the current user's uninstall registration.
 Automated checks cover authenticated API access and token rotation, renderer isolation,
 blocked external fetches, offline renderer operation, Chromium network-log checks,
 session saving, simulated sleep, restart persistence,
-confirmed deletion, rollback, failed compaction, camera cleanup after failed writes,
-abrupt-backend crash recovery, and shutdown on parent-pipe closure. Native inference uses synthetic frames.
+confirmed deletion, automatic observation cleanup and space reclamation, report
+preservation, rollback, failed compaction and retry, camera cleanup after failed writes,
+abrupt-backend crash recovery, and shutdown on parent-pipe closure. Native inference uses synthetic frames. Development diagnostics visibility/cancellation and exclusion from the packaged app are also checked. Physical accuracy remains unverified.
 
 Before publishing each OS release, also verify on a clean machine:
 

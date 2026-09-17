@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { gazeRequest } from '../src/gaze-api'
-import type { DisplayGeometry, GazeState } from '../src/types'
+import type { CameraStatus, DisplayGeometry, GazeState } from '../src/types'
 
 const displayGeometry = (): DisplayGeometry => ({ width: window.screen.width, height: window.screen.height, device_pixel_ratio: window.devicePixelRatio })
 
-export default function GazePanel({ enabled, busy, visible = true }: { enabled: boolean; busy: boolean; visible?: boolean; inSession?: boolean }) {
+export default function GazePanel({ enabled, busy, visible = true, cameraStatus }: { enabled: boolean; busy: boolean; visible?: boolean; cameraStatus?: CameraStatus; inSession?: boolean }) {
   const [stableQuality, setStableQuality] = useState('unavailable')
   const qualityCandidate = useRef({ value: 'unavailable', since: 0 })
   const [data, setData] = useState<GazeState | null>(null)
@@ -19,9 +19,14 @@ export default function GazePanel({ enabled, busy, visible = true }: { enabled: 
   const opener = useRef<HTMLButtonElement>(null)
   const dialog = useRef<HTMLDialogElement>(null)
   const fullscreenOwned = useRef(false)
+  const starting = useRef(false)
+  const cancelling = useRef(false)
+  const attempt = useRef(0)
   const alive = useRef(true)
   const visibleRef = useRef(visible)
+  const enabledRef = useRef(enabled)
   visibleRef.current = visible
+  enabledRef.current = enabled
 
   useEffect(() => {
     alive.current = true
@@ -46,7 +51,7 @@ export default function GazePanel({ enabled, busy, visible = true }: { enabled: 
     }
     void poll()
     const watchdog = setInterval(() => { if (performance.now() - lastReceived.current > 750) setFresh(false) }, 100)
-    return () => { stopped = true; alive.current = false; clearTimeout(timeout); clearInterval(watchdog) }
+    return () => { stopped = true; alive.current = false; clearTimeout(timeout); clearInterval(watchdog); void cancel() }
   }, [])
 
   async function command(action: string, body: object = {}) {
@@ -66,47 +71,63 @@ export default function GazePanel({ enabled, busy, visible = true }: { enabled: 
   }
 
   async function leaveFullscreen() {
-    setOpen(false)
+    if (alive.current) setOpen(false)
     const owned = fullscreenOwned.current
     fullscreenOwned.current = false
     if (owned && document.fullscreenElement) await document.exitFullscreen().catch(() => {})
-    if (visibleRef.current) opener.current?.focus()
+    if (alive.current && visibleRef.current) opener.current?.focus()
   }
 
   async function cancel() {
-    epoch.current++
-    setFresh(false)
+    attempt.current++
+    const version = ++epoch.current
+    if (alive.current) setFresh(false)
     const id = calibrationId.current
     calibrationId.current = null
-    await leaveFullscreen()
-    // A cancel may occur while a target POST is pending. It must not be dropped
-    // by the normal command lock; the server serializes and validates the ID.
-    if (id) {
-      try {
-        const next = await gazeRequest('reset', { calibration_id: id })
-        if (alive.current) { setData(next); setFresh(false) }
-      } catch { if (alive.current) setError('Calibration cancellation could not reach the service. It will expire when this page stops polling.') }
-    }
+    cancelling.current = true
+    try {
+      await leaveFullscreen()
+      // A cancel may occur while a target POST is pending. It must not be dropped
+      // by the normal command lock; the server serializes and validates the ID.
+      if (id) {
+        try {
+          const next = await gazeRequest('reset', { calibration_id: id })
+          if (alive.current && version === epoch.current) { setData(next); setFresh(false) }
+        } catch { if (alive.current && version === epoch.current) setError('Calibration cancellation could not reach the service. It will expire when this page stops polling.') }
+      }
+    } finally { cancelling.current = false }
   }
 
   async function start() {
-    if (busy || working || data?.diagnostic_check_active || !enabled || !visibleRef.current) return
+    if (busy || working || commandBusy.current || starting.current || cancelling.current || open || data?.diagnostic_check_active || !enabledRef.current || !visibleRef.current) return
     setError(''); setFresh(false)
     if (!document.documentElement.requestFullscreen) { setError('Fullscreen is required for display calibration. Use a browser with fullscreen support.'); return }
+    const generation = ++attempt.current
+    starting.current = true
+    setWorking(true)
     try {
       await document.documentElement.requestFullscreen()
       fullscreenOwned.current = true
-      if (!visibleRef.current) { await leaveFullscreen(); return }
+      if (!alive.current || generation !== attempt.current || !enabledRef.current || !visibleRef.current || document.hidden || !document.fullscreenElement) { await leaveFullscreen(); return }
       setOpen(true)
       const next = await command('start', { display: displayGeometry() })
       if (!next) { await leaveFullscreen(); return }
-      calibrationId.current = next.calibration.id
       // Escape can be pressed before the start request completes.
-      if (!document.fullscreenElement || !visibleRef.current) await cancel()
-    } catch { setError('Fullscreen could not start. Allow fullscreen and try again.'); await leaveFullscreen() }
+      if (!alive.current || generation !== attempt.current || !enabledRef.current || !visibleRef.current || document.hidden || !document.fullscreenElement) {
+        const id = next.calibration.id
+        if (calibrationId.current === id) calibrationId.current = null
+        await leaveFullscreen()
+        if (id) await gazeRequest('reset', { calibration_id: id })
+        return
+      }
+      calibrationId.current = next.calibration.id
+    } catch {
+      if (alive.current && generation === attempt.current) setError('Gaze setup could not start. Check the camera and fullscreen access, then try again.')
+      await leaveFullscreen()
+    } finally { starting.current = false; if (alive.current) setWorking(false) }
   }
 
-  useEffect(() => { if (!visible && (open || calibrationId.current)) void cancel() }, [visible, open])
+  useEffect(() => { if ((!visible || !enabled) && (open || calibrationId.current || starting.current)) void cancel() }, [visible, enabled, open])
 
   useEffect(() => {
     const modal = dialog.current
@@ -133,9 +154,14 @@ export default function GazePanel({ enabled, busy, visible = true }: { enabled: 
     if (calibration.completed_targets === calibration.target_count) {
       void command('complete', { calibration_id: calibration.id })
     } else {
-      // The target is rendered at its server-defined location before collection
-      // starts; the backend also discards the first 500 ms for settling.
-      void command('target', { calibration_id: calibration.id, target_index: calibration.completed_targets })
+      // Acknowledge the painted target, then let the backend's settling period run.
+      let second = 0
+      const first = requestAnimationFrame(() => { second = requestAnimationFrame(() => {
+        if (calibrationId.current === calibration.id && visibleRef.current && enabledRef.current) {
+          void command('target', { calibration_id: calibration.id, target_index: calibration.completed_targets })
+        }
+      }) })
+      return () => { cancelAnimationFrame(first); cancelAnimationFrame(second) }
     }
   }, [open, data, working, enabled, error, visible])
 
@@ -173,15 +199,19 @@ export default function GazePanel({ enabled, busy, visible = true }: { enabled: 
   const target = calibration?.targets[Math.min(calibration.completed_targets, calibration.target_count - 1)]
   const ready = calibration?.status === 'ready'
   const reason = data?.observation.reason ?? ''
-  const status = !enabled ? 'Camera off' : !fresh ? 'Connecting gaze…' : !ready ? 'Set up gaze' :
+  const status = !enabled ? cameraStatus === 'unavailable' ? 'Gaze paused. Retry camera to resume tracking.' : cameraStatus === 'starting' ? 'Waiting for camera…' : 'Camera off' : !fresh ? 'Connecting gaze…' : !ready ? 'Set up gaze' :
     reason === 'display_changed_recalibrate' || reason === 'camera_config_changed_recalibrate' ? 'Setup needs updating' :
     reason.startsWith('seating_changed') ? 'Return to your setup position or redo setup' :
-    data?.observation.valid ? 'Gaze ready' : 'Waiting for your eyes'
+    data?.observation.valid ? 'Gaze ready' : reason === 'multiple_faces' ? 'Keep only one face in view' :
+    reason === 'outside_calibrated_area' ? 'Look within your calibrated display' :
+    reason === 'stale' || reason === 'camera_unavailable' ? 'Tracking unavailable. Check the camera.' : 'Waiting for your eyes'
   return <section className="gaze-panel compact-gaze" aria-label="Gaze setup">
     <div className="compact-gaze-row"><span className="gaze-message" role="status">{status}</span>
       <button ref={opener} type="button" className="text-button" disabled={!enabled || busy || working || open || data?.diagnostic_check_active} onClick={() => void start()}>{working ? 'Updating setup…' : ready ? 'Redo setup' : 'Set up gaze'}</button>
       {calibration?.id && !open && <details className="gaze-options"><summary>Setup options</summary><button type="button" className="text-button" disabled={busy || working} onClick={() => void command('reset')}>Reset gaze setup</button></details>}
     </div>
+    {enabled && ready && reason === 'display_changed_recalibrate' && <p className="muted small">Return to the display used for setup, or redo setup for this display.</p>}
+    {enabled && ready && reason === 'camera_config_changed_recalibrate' && <p className="muted small">Return to the camera used for setup, or redo setup for this camera.</p>}
     {error && <p className="error" role="alert">{error}</p>}
     {open && <dialog ref={dialog} className="calibration-screen" aria-labelledby="calibration-title" onCancel={event => { event.preventDefault(); void cancel() }} onKeyDown={event => {
       if (event.key !== 'Tab') return

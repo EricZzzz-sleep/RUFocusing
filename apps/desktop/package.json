@@ -18,6 +18,7 @@
     "package:release": "node scripts/package.mjs",
     "test:backend": "node scripts/backend-smoke.mjs",
     "test:desktop": "node scripts/smoke.mjs",
+    "test:reliability-ui": "node scripts/reliability-ui-smoke.mjs",
     "test:installer": "node scripts/installer-smoke.mjs"
   },
   "dependencies": {

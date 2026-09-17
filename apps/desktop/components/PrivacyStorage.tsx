@@ -34,6 +34,7 @@ export default function PrivacyStorage({ sessions, active, onChange }: { session
   return <section className="panel privacy-panel" aria-label="Privacy and storage">
     <h2>Your data stays on this device</h2>
     <p>Camera images are processed on this device and are never saved or uploaded.</p>
+    <p>Temporary camera observations are automatically deleted when a session ends. Your study timeline and reports stay saved. Cleanup also runs when you reopen the app after an interruption.</p>
     <p>RUFocusing keeps your reports, study history, reflections, and gaze setup in your local app-data folder. It has no cloud account, analytics uploads, or automatic update checks.</p>
     <p className="muted">Your device account protects access. There is no app password or app-level encryption. Device backups, administrators, and software with access to your account may access saved reports.</p>
     <dl className="storage-totals"><div><dt>Saved data</dt><dd>{storage ? `${(storage.bytes / 1024 / 1024).toFixed(2)} MB` : 'Loading…'}</dd></div><div><dt>Sessions</dt><dd>{storage?.sessions ?? '—'}</dd></div><div><dt>Gaze setup</dt><dd>{storage ? storage.gaze_setup_saved ? 'Saved' : 'Not saved' : '—'}</dd></div></dl>
@@ -41,6 +42,7 @@ export default function PrivacyStorage({ sessions, active, onChange }: { session
     {active && <p className="notice">End your current session before deleting history or resetting gaze setup.</p>}
     {error && <p className="error" role="alert">{error}</p>}
     {message && <p className="notice" role="status">{message}</p>}
+    {!message && storage?.warning && <p className="notice" role="status">{storage.warning}</p>}
     <div className="storage-actions"><button className="button secondary" disabled={disabled} onClick={() => setChoice({ action: 'clear-history', title: 'Delete all saved study history?' })}>Clear all history</button><button className="button secondary" disabled={disabled || !storage?.gaze_setup_saved} onClick={() => setChoice({ action: 'reset-gaze', title: 'Reset your saved gaze setup?' })}>Reset gaze setup</button></div>
     {choice && <div className="storage-confirm" role="alertdialog" aria-labelledby="storage-confirm-title" aria-describedby="storage-confirm-description">
       <h3 id="storage-confirm-title">{choice.title}</h3><p id="storage-confirm-description">{choice.action === 'reset-gaze' ? 'You will need to set up gaze again. Your saved study reports will remain.' : 'This cannot be undone. Related observations, reflections, and tags will also be deleted. Your saved gaze setup will remain.'}</p>

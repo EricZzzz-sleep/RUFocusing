@@ -6,7 +6,8 @@ A local study timer with a simple timeline of **Deep study**, **Normal**, and **
 
 The Electron app packages this local workspace for **macOS Apple Silicon** and
 **Windows x64**. It works offline, needs no account or app password, and never saves
-video. Reports remain in the device's local app-data folder. **Privacy & storage**
+video. Temporary camera observations are automatically deleted at session end;
+reports remain in the device's local app-data folder. **Privacy & storage**
 provides storage usage and confirmed deletion of sessions, history, and gaze setup.
 
 See [desktop installation, builds, signing, and validation](docs/desktop-app.md) and
@@ -37,7 +38,7 @@ The launcher reuses an existing compatible instance of this checkout. Stop an ol
 ## Use
 
 1. Open **Record**, enter a task, choose a study mode, and start your session.
-2. Optionally enable **Use camera** in **Camera & gaze**. Drag the preview title bar or camera image to reposition it; its position is remembered while the page stays open. Preview, retry, and camera toggles remain available during study. Closing a preview during a session keeps tracking on; closing setup preview releases the camera.
+2. Optionally enable **Use camera** in **Camera & gaze**. Drag the preview title bar or camera image to reposition it; its position is remembered while the page stays open. Preview, retry, and camera toggles remain available during study. A camera failure clears tracking and requires an explicit retry; missing tracking remains a neutral gap while the timer continues. Closing a preview during a session keeps tracking on; closing setup preview releases the camera.
 3. Follow your **Estimated study periods** timeline. Select a period for its time and duration. Use the information control for definitions.
 4. **Take a break**, **Resume session**, or **End & save session**. The saved report shows the same timeline and totals. Optional ratings and personal timeline tags are inside **Reflection**.
 5. In **Analysis**, choose a date range to see the three totals and search your session history.
@@ -62,7 +63,7 @@ The successful setup is reused across sessions, preview closure, camera toggles,
 
 Existing installations complete setup once to establish the reusable profile. Previous session calibration records remain historical records and are not automatically promoted. The device profile has no expiry and is independent of any one session; session links preserve the identity of reused models.
 
-Gaze maps, quality readings, validation errors, reliability trials, and diagnostic tables are absent from the user interface. Developer APIs and stored diagnostics remain available; see [gaze tracking](docs/gaze-tracking.md) and [diagnostic protocol](docs/gaze-reliability.md). Physical webcam accuracy has not been established by the synthetic tests.
+Gaze maps, quality readings, validation errors, reliability trials, and diagnostic tables are absent from the user interface. Developer APIs and stored diagnostics remain available; see [gaze tracking](docs/gaze-tracking.md) and [diagnostic protocol](docs/gaze-reliability.md). Physical webcam accuracy has not been established by the synthetic tests. Development-only accuracy checks are available with `?diagnostics=1#record`; see the [isolated physical trial guide](docs/gaze-reliability.md#isolated-local-trial-workspace).
 
 ## Development and validation
 
@@ -73,7 +74,10 @@ Gaze maps, quality readings, validation errors, reliability trials, and diagnost
 
 Run `make test` for Python and frontend tests, TypeScript checks, and the production build. Tests use synthetic camera observations and temporary databases; they do not activate the webcam. Browser layout checks cover desktop and a 390px mobile viewport, keyboard selection, neutral gaps, and overflow.
 
-Raw frames, full face meshes, and video are never stored. Internal numerical observations, historical calibration parameters, diagnostics, reflections, and tags remain local.
+Raw frames, full face meshes, and video are never stored. Numerical camera observations
+are local and temporary: session completion or interruption recovery deletes them and
+reclaims unused database space. Timelines, historical calibration parameters, diagnostic
+summaries, reflections, and tags remain local for reports.
 
 ## Public website (separate app)
 

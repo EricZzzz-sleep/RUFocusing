@@ -124,6 +124,7 @@ describe('Gaze calibration and live feedback', () => {
     })
     await render()
     await click('Set up gaze')
+    await act(async () => vi.advanceTimersByTimeAsync(40))
     expect(host.textContent).toContain('Target request failed')
     expect([...host.querySelectorAll('button')].some(button => button.textContent === 'Retry target')).toBe(true)
     const [cancelButton, retryButton] = host.querySelectorAll<HTMLButtonElement>('dialog button')
@@ -158,4 +159,62 @@ describe('Gaze calibration and live feedback', () => {
     expect(host.textContent).toContain('Redo setup')
   })
 
+  it('does not start after a delayed fullscreen grant when camera was disabled', async () => {
+    let grant!: () => void
+    vi.mocked(document.documentElement.requestFullscreen).mockImplementation(() => new Promise(resolve => {
+      grant = () => { Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: document.documentElement }); resolve() }
+    }))
+    vi.mocked(gazeRequest).mockResolvedValue(initial())
+    await render()
+    await click('Set up gaze')
+    await click('Updating setup')
+    expect(document.documentElement.requestFullscreen).toHaveBeenCalledOnce()
+    await render(false)
+    await act(async () => grant())
+    expect(vi.mocked(gazeRequest).mock.calls.some(([action]) => action === 'start')).toBe(false)
+    expect(document.fullscreenElement).toBeNull()
+    expect(host.querySelector('dialog')).toBeNull()
+  })
+
+  it('cancels a delayed start after disable, even if re-enabled before the response', async () => {
+    let resolveStart!: (state: GazeState) => void
+    vi.mocked(gazeRequest).mockImplementation(action => action === 'start' ? new Promise(resolve => { resolveStart = resolve }) : Promise.resolve(initial()))
+    await render()
+    await click('Set up gaze')
+    await render(false)
+    await render(true)
+    const started = initial(); started.calibration.id = 'late-start'; started.calibration.status = 'collecting'
+    await act(async () => resolveStart(started))
+    expect(host.querySelector('dialog')).toBeNull()
+    expect(vi.mocked(gazeRequest).mock.calls).toContainEqual(['reset', { calibration_id: 'late-start' }])
+    expect(vi.mocked(gazeRequest).mock.calls.some(([action]) => action === 'target')).toBe(false)
+  })
+
+  it('cancels a start that finishes after the component unmounts', async () => {
+    let resolveStart!: (state: GazeState) => void
+    vi.mocked(gazeRequest).mockImplementation(action => action === 'start' ? new Promise(resolve => { resolveStart = resolve }) : Promise.resolve(initial()))
+    await render()
+    await click('Set up gaze')
+    await act(async () => root.render(null))
+    const started = initial(); started.calibration.id = 'unmounted'; started.calibration.status = 'collecting'
+    await act(async () => resolveStart(started))
+    expect(vi.mocked(gazeRequest).mock.calls).toContainEqual(['reset', { calibration_id: 'unmounted' }])
+    expect(document.fullscreenElement).toBeNull()
+  })
+
+  it('ignores a target response arriving after cancellation', async () => {
+    let resolveTarget!: (state: GazeState) => void
+    const started = initial(); started.calibration.id = 'cancel-target'; started.calibration.status = 'collecting'
+    vi.mocked(gazeRequest).mockImplementation(action => action === 'start' ? Promise.resolve(started) : action === 'target'
+      ? new Promise(resolve => { resolveTarget = resolve }) : Promise.resolve(initial()))
+    await render()
+    await click('Set up gaze')
+    await act(async () => vi.advanceTimersByTimeAsync(40))
+    await click('Cancel setup')
+    await act(async () => resolveTarget({ ...started, calibration: { ...started.calibration, collecting: true } }))
+    await act(async () => vi.advanceTimersByTimeAsync(500))
+    expect(host.querySelector('dialog')).toBeNull()
+    expect(vi.mocked(gazeRequest).mock.calls.filter(([action]) => action === 'target')).toHaveLength(1)
+    expect(vi.mocked(gazeRequest).mock.calls).toContainEqual(['reset', { calibration_id: 'cancel-target' }])
+  })
 })

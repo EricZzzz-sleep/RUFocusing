@@ -70,7 +70,7 @@ describe('Camera preview recovery', () => {
     expect(location()).toEqual({ x: 586, y: 376 })
     await act(async () => { vi.stubGlobal('innerWidth', 600); vi.stubGlobal('innerHeight', 500); window.dispatchEvent(new Event('resize')) })
     expect(location()).toEqual({ x: 194, y: 84 })
-    expect(fetchFrame).toHaveBeenCalledOnce()
+    expect(fetchFrame).not.toHaveBeenCalled()
   })
 
   it.each(['mouse', 'touch', 'pen'].flatMap(pointerType => ['.preview-drag-handle', '#preview-title', '.preview-image-area'].map(source => ({ pointerType, source }))))('drags $source with $pointerType and ends movement on cancellation', async ({ pointerType, source }) => {
@@ -152,5 +152,36 @@ describe('Camera preview recovery', () => {
     await act(async () => root.render(null))
     expect(document.activeElement).toBe(opener)
     opener.remove()
+  })
+
+  it('expires the last image at two seconds and rejects a response after its timeout', async () => {
+    fetchFrame.mockResolvedValueOnce(new Response(new Blob(['frame']), { headers: { 'Content-Type': 'image/jpeg' } }))
+    let delayed!: (response: Response) => void
+    fetchFrame.mockImplementationOnce(() => new Promise(resolve => { delayed = resolve }))
+    await render('ready')
+    await act(async () => vi.advanceTimersByTimeAsync(1999))
+    expect(host.querySelector('img')).not.toBeNull()
+    await act(async () => vi.advanceTimersByTimeAsync(1))
+    expect(host.querySelector('img')).toBeNull()
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:camera-frame')
+    await act(async () => vi.advanceTimersByTimeAsync(200))
+    expect(fetchFrame.mock.calls[1][1].signal.aborted).toBe(true)
+    await act(async () => delayed(new Response(new Blob(['late']), { headers: { 'Content-Type': 'image/jpeg' } })))
+    expect(host.querySelector('img')).toBeNull()
+    expect(URL.createObjectURL).toHaveBeenCalledOnce()
+    expect(onRetry).not.toHaveBeenCalled()
+  })
+
+  it('ignores an old response after failure and a new camera start', async () => {
+    let delayed!: (response: Response) => void
+    fetchFrame.mockImplementationOnce(() => new Promise(resolve => { delayed = resolve }))
+    await render('ready')
+    const oldSignal = fetchFrame.mock.calls[0][1].signal
+    await render('unavailable')
+    expect(oldSignal.aborted).toBe(true)
+    await render('starting')
+    await act(async () => delayed(new Response(new Blob(['old']), { headers: { 'Content-Type': 'image/jpeg' } })))
+    expect(host.querySelector('img')).toBeNull()
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
   })
 })

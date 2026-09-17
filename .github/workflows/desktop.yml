@@ -44,6 +44,8 @@ jobs:
           npm --prefix apps/desktop test
           npm --prefix apps/desktop run test:shell
           npm --prefix apps/desktop run build
+          npm --prefix apps/desktop exec playwright install chromium
+          npm --prefix apps/desktop run test:reliability-ui
       - name: Build development installer
         if: ${{ !inputs.signed }}
         env:

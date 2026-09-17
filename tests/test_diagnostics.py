@@ -218,6 +218,39 @@ class IntegrationTests(unittest.TestCase):
         self.assertIsNotNone(self.c.active_id)
         self.assertEqual(self.c.gaze.status, 'ready')
 
+    def test_failed_accuracy_check_cannot_restore_saved_profile_after_restart(self):
+        model = self.c.gaze.record()
+        with self.c.store.connection:
+            self.c.store.connection.execute('INSERT INTO gaze_profile VALUES (1,?,?)', (json.dumps(model), 'now'))
+        result = self.run_check(wrong=True)
+        self.assertEqual(result['status'], 'failed')
+        self.assertIsNone(self.c.store.gaze_profile())
+        self.c.set_camera(False)
+        self.c.set_camera(True)
+        self.assertFalse(self.c.gaze_snapshot()['observation']['valid'])
+        self.c.close()
+        self.c = SessionController(self.path, self.camera, self.clock, self.clock.wall)
+        self.assertEqual(self.c.gaze.status, 'uncalibrated')
+        self.assertIsNotNone(self.c.store.connection.execute('SELECT id FROM calibrations WHERE id=?', (model['id'],)).fetchone())
+        self.assertEqual(self.c.store.diagnostic(result['id'])['status'], 'failed')
+
+    def test_failed_check_and_profile_rejection_commit_together_and_retry(self):
+        model = self.c.gaze.record()
+        with self.c.store.connection:
+            self.c.store.connection.execute('INSERT INTO gaze_profile VALUES (1,?,?)', (json.dumps(model), 'now'))
+        self.c.store.connection.execute("CREATE TRIGGER block_rejection BEFORE DELETE ON gaze_profile BEGIN SELECT RAISE(ABORT, 'disk error'); END")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.run_check(wrong=True)
+        failed = next(record for record in self.c.diagnostics.records.values() if record['kind'] == 'check' and record['status'] == 'failed')
+        self.assertNotEqual(self.c.store.diagnostic(failed['id'])['status'], 'failed')
+        self.assertIsNotNone(self.c.store.gaze_profile())
+        self.assertFalse(self.c._restore_gaze_setup())
+        self.assertFalse(self.c.gaze.latest.valid)
+        self.c.store.connection.execute('DROP TRIGGER block_rejection')
+        self.c._flush_diagnostics(self.clock(), True)
+        self.assertEqual(self.c.store.diagnostic(failed['id'])['status'], 'failed')
+        self.assertIsNone(self.c.store.gaze_profile())
+
     def test_trial_survives_breaks_toggles_and_interrupts_on_retry(self):
         state = self.c.diagnostic_action('trials', 'start', {'request_id': 'trial', 'display': DISPLAY})
         trial_id = state['trial']['id']

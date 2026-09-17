@@ -13,7 +13,9 @@ export default function DiagnosticsPanel({ enabled, busy, visible, inSession, on
   const [open, setOpen] = useState(false)
   const owner = useRef<string | null>(null)
   const epoch = useRef(0), locked = useRef(false), alive = useRef(true), visibleRef = useRef(visible)
+  const enabledRef = useRef(enabled)
   visibleRef.current = visible
+  enabledRef.current = enabled
   const dialog = useRef<HTMLDialogElement>(null), opener = useRef<HTMLElement | null>(null)
   const ownsFullscreen = useRef(false)
   const awaitingFullscreen = useRef(false)
@@ -33,7 +35,7 @@ export default function DiagnosticsPanel({ enabled, busy, visible, inSession, on
       if (!stopped) timeout = setTimeout(poll, owner.current ? 200 : 1000)
     }
     void poll()
-    return () => { stopped = true; alive.current = false; clearTimeout(timeout); owner.current = null }
+    return () => { stopped = true; alive.current = false; clearTimeout(timeout); void cancel() }
   }, [onCollectionChange])
 
   async function command(group: 'checks' | 'trials', action: string, body: object) {
@@ -51,18 +53,18 @@ export default function DiagnosticsPanel({ enabled, busy, visible, inSession, on
     finally { locked.current = false; if (alive.current) setWorking(false) }
   }
   async function leave() {
-    setOpen(false)
+    if (alive.current) setOpen(false)
     const owned = ownsFullscreen.current; ownsFullscreen.current = false
     if (owned && document.fullscreenElement) await document.exitFullscreen().catch(() => {})
-    if (visibleRef.current && opener.current?.isConnected) opener.current.focus()
+    if (alive.current && visibleRef.current && opener.current?.isConnected) opener.current.focus()
   }
   async function cancel() {
-    epoch.current++; startId.current = null
+    const version = ++epoch.current; startId.current = null
     const id = owner.current; owner.current = null
     await leave()
     if (id) {
-      try { const next = await diagnosticCommand('checks', 'cancel', { id }); if (alive.current) { setData(next); onCollectionChange(Boolean(next.check)) } }
-      catch { if (alive.current) setError('Cancellation could not reach the service. Collection expires after three seconds without its owner.') }
+      try { const next = await diagnosticCommand('checks', 'cancel', { id }); if (alive.current && version === epoch.current) { setData(next); onCollectionChange(Boolean(next.check)) } }
+      catch { if (alive.current && version === epoch.current) setError('Cancellation could not reach the service. Collection expires after three seconds without its owner.') }
     }
   }
   async function start(trial = false) {
@@ -74,12 +76,12 @@ export default function DiagnosticsPanel({ enabled, busy, visible, inSession, on
     awaitingFullscreen.current = true
     try {
       await document.documentElement.requestFullscreen(); ownsFullscreen.current = true
-      if (!visibleRef.current || attempt !== startId.current) { await leave(); return }
+      if (!alive.current || !enabledRef.current || !visibleRef.current || attempt !== startId.current || !document.fullscreenElement || document.hidden) { await leave(); return }
       setOpen(true)
       if (trial) {
         const next = await command('trials', 'start', { request_id: `${attempt}-trial`, display: display(), conditions })
         if (!next) { await leave(); return }
-        if (!visibleRef.current || !document.fullscreenElement || attempt !== startId.current) {
+        if (!alive.current || !enabledRef.current || !visibleRef.current || !document.fullscreenElement || attempt !== startId.current) {
           if (next.trial) await diagnosticCommand('trials', 'stop', { id: next.trial.id })
           await leave(); return
         }
@@ -87,16 +89,16 @@ export default function DiagnosticsPanel({ enabled, busy, visible, inSession, on
       const next = await command('checks', 'start', { request_id: attempt, display: display(), conditions })
       if (!next) { await leave(); return }
       const id = next.check?.id
-      if (!visibleRef.current || !document.fullscreenElement || attempt !== startId.current) {
+      if (!alive.current || !enabledRef.current || !visibleRef.current || !document.fullscreenElement || attempt !== startId.current) {
         if (id) await diagnosticCommand('checks', 'cancel', { id })
         await leave(); return
       }
       owner.current = id ?? null
-    } catch { setError('Fullscreen could not start. Allow fullscreen and try again.'); await leave() }
+    } catch { if (alive.current) setError('The accuracy check could not start. Check camera and fullscreen access, then retry.'); await leave() }
     finally { awaitingFullscreen.current = false }
   }
 
-  useEffect(() => { if (!visible && (open || awaitingFullscreen.current)) void cancel() }, [visible, open])
+  useEffect(() => { if ((!visible || !enabled) && (open || awaitingFullscreen.current)) void cancel() }, [visible, enabled, open])
   useEffect(() => {
     const modal = dialog.current
     if (open && modal && !modal.open) modal.showModal()
@@ -117,7 +119,7 @@ export default function DiagnosticsPanel({ enabled, busy, visible, inSession, on
     // Two animation frames acknowledge a painted target before the server starts settling.
     let second = 0
     const first = requestAnimationFrame(() => { second = requestAnimationFrame(() => {
-      if (!owner.current || !visibleRef.current) return
+      if (!owner.current || !visibleRef.current || !enabledRef.current) return
       void command('checks', check.completed_targets === 9 ? 'complete' : 'target', { id: owner.current, target_index: check.completed_targets })
     }) })
     return () => { cancelAnimationFrame(first); cancelAnimationFrame(second) }

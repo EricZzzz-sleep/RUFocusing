@@ -80,26 +80,37 @@ export default function CameraPreview({ message, status, inSession, onClose, onR
     let stopped = false
     let url = ''
     let timeout: ReturnType<typeof setTimeout>
+    let expiry: ReturnType<typeof setTimeout> | undefined
     let controller: AbortController | undefined
     function clearImage() {
+      clearTimeout(expiry)
       if (url) URL.revokeObjectURL(url)
       url = ''
       if (!stopped) setImage('')
     }
     async function poll() {
-      controller = new AbortController()
-      const abort = setTimeout(() => controller?.abort(), 4000)
+      const current = new AbortController()
+      controller = current
+      const abort = setTimeout(() => {
+        current.abort()
+        if (!stopped) { clearImage(); setFrameError('Camera preview connection lost. Check the local service connection, then select Retry camera.') }
+      }, 2000)
       try {
-        const response = await fetch('/api/camera/preview', { headers: { 'X-RUFocusing': '1' }, cache: 'no-store', signal: controller.signal })
-        if (stopped) return
+        const response = await fetch('/api/camera/preview', { headers: { 'X-RUFocusing': '1' }, cache: 'no-store', signal: current.signal })
+        if (stopped || current.signal.aborted) return
         if (response.status === 204) { clearImage(); setFrameError('') }
         else if (response.ok && response.headers.get('content-type')?.includes('image/jpeg')) {
           const blob = await response.blob()
-          if (stopped) return
+          if (stopped || current.signal.aborted) return
           const next = URL.createObjectURL(blob)
           if (url) URL.revokeObjectURL(url)
           url = next
           setImage(next); setFrameError('')
+          clearTimeout(expiry)
+          expiry = setTimeout(() => {
+            clearImage()
+            if (!stopped) setFrameError('Camera preview is no longer updating. Select Retry camera.')
+          }, 2000)
         } else { clearImage(); setFrameError('Preview unavailable. Select Retry camera. If it persists, check the local service connection.') }
       } catch {
         if (!stopped) { clearImage(); setFrameError('Camera preview connection lost. Check the local service connection, then select Retry camera.') }
@@ -108,9 +119,11 @@ export default function CameraPreview({ message, status, inSession, onClose, onR
         if (!stopped) timeout = setTimeout(poll, 200)
       }
     }
-    void poll()
-    return () => { stopped = true; clearTimeout(timeout); controller?.abort(); clearImage() }
-  }, [])
+    setFrameError('')
+    setImage('')
+    if (status === 'starting' || status === 'ready') void poll()
+    return () => { stopped = true; clearTimeout(timeout); clearTimeout(expiry); controller?.abort(); clearImage() }
+  }, [status])
 
   const displayStatus = frameError ? 'unavailable' : status
   return <section ref={panel} className={`camera-preview${dragging ? ' is-dragging' : ''}`} style={{ left: location?.x, top: location?.y, right: location ? 'auto' : undefined, bottom: location ? 'auto' : undefined, width: Math.min(390, viewport.width - 32), maxHeight: viewport.height - 32 }} role="dialog" aria-modal="false" aria-labelledby="preview-title"

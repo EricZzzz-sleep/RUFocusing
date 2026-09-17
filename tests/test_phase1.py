@@ -74,7 +74,7 @@ class PreviewBufferTests(unittest.TestCase):
         self.assertIsNone(camera.preview_frame())
         camera.latest = Observation(time.monotonic(), True, 1)
         camera.jpeg = b'last-frame'
-        camera.process = SimpleNamespace(is_alive=lambda: False)
+        camera.process = SimpleNamespace(is_alive=lambda: False, close=Mock())
         self.assertIsNone(camera.preview_frame())
         self.assertFalse(camera.snapshot().available)
 
@@ -95,7 +95,7 @@ class CameraLifecycleTests(unittest.TestCase):
     def tearDown(self):
         self.camera.stop()
 
-    def test_start_ready_stale_recovery_and_stop_states(self):
+    def test_stalled_capture_is_released_and_requires_manual_retry(self):
         self.assertEqual(self.camera.snapshot().camera_status, 'off')
         self.camera.start()
         self.assertEqual(self.camera.snapshot().camera_status, 'starting')
@@ -106,12 +106,30 @@ class CameraLifecycleTests(unittest.TestCase):
         self.assertEqual(self.camera.snapshot().camera_status, 'unavailable')
         self.assertFalse(self.camera.snapshot().available)
         self.assertIsNone(self.camera.preview_frame())
+        self.assertIsNone(self.camera.process)
+        self.assertIsNone(self.camera.output)
+        self.clock.value += 10
+        self.assertEqual(self.camera.snapshot().camera_status, 'unavailable')
+        self.process.start.assert_called_once()
+        self.process.is_alive.return_value = True
+        self.camera.start()
         _publish(self.camera.output, Observation(self.clock(), True, 1, camera_status='ready'), b'fresh-frame')
         self.assertEqual(self.camera.snapshot().camera_status, 'ready')
         self.camera.stop()
         self.assertEqual(self.camera.snapshot().camera_status, 'off')
         self.assertIsNone(self.camera.preview_frame())
-        self.process.close.assert_called_once()
+        self.assertEqual(self.process.close.call_count, 2)
+
+    def test_worker_reported_failure_clears_buffers_and_stays_failed(self):
+        self.camera.start()
+        output = self.camera.output
+        self.camera.jpeg = b'previous frame'
+        _publish(output, Observation(self.clock(), camera_status='unavailable', message='Camera access denied. Retry camera.'))
+        self.assertIn('access denied', self.camera.snapshot().message)
+        self.assertIsNone(output.buffer)
+        self.assertIsNone(self.camera.process)
+        self.assertIsNone(self.camera.preview_frame())
+        self.assertEqual(self.camera.snapshot().camera_status, 'unavailable')
 
     def test_startup_timeout_releases_process_and_allows_retry(self):
         self.camera.start()
@@ -141,6 +159,8 @@ class CameraLifecycleTests(unittest.TestCase):
         self.assertEqual(observation.camera_status, 'unavailable')
         self.assertIn('Retry camera', observation.message)
         self.assertNotIn('restart the session', observation.message)
+        self.assertIsNone(self.camera.process)
+        self.assertIsNone(self.camera.output)
 
     def test_open_failure_and_model_failure_publish_actionable_status(self):
         cv2 = Mock()
@@ -409,10 +429,11 @@ class SessionTests(unittest.TestCase):
         self.controller = SessionController(self.path, self.camera, self.clock, self.clock.wall)
         self.assertEqual(self.controller.snapshot()['history'][0], session)
 
-    def test_observations_persist_and_camera_failure_is_unknown(self):
+    def test_observations_are_temporary_and_camera_failure_is_unknown(self):
         self.controller.start('Math', 'Math', True)
         self.advance(4)
         self.assertEqual(self.controller.snapshot()['state'], 'present')
+        self.assertGreater(self.controller.store.connection.execute('SELECT COUNT(*) FROM observations').fetchone()[0], 0)
         self.camera.available = False
         self.advance(3)
         session = self.controller.finish()
@@ -421,7 +442,7 @@ class SessionTests(unittest.TestCase):
         self.assert_timeline(session)
         columns = {row[1] for row in self.controller.store.connection.execute('PRAGMA table_info(observations)')}
         self.assertEqual(columns, {'id','session_id','elapsed','available','face_count','pitch','yaw','roll'})
-        self.assertGreater(self.controller.store.connection.execute('SELECT COUNT(*) FROM observations').fetchone()[0], 0)
+        self.assertEqual(self.controller.store.connection.execute('SELECT COUNT(*) FROM observations').fetchone()[0], 0)
 
     def test_break_releases_camera_and_resume_restarts(self):
         self.controller.start('Math', 'Math', True)

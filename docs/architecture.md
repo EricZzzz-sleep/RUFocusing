@@ -22,7 +22,7 @@ React controls ↔ local Python API → SQLite → timeline and report
 - `core/session.py`: one active session, a monotonic clock, explicit breaks, one-second observation persistence, and checkpoints.
 - `core/behavior/rules.py`: one face → present; fresh no-face observations sustained for 10 seconds → estimated away; missing/stale/multiple-face evidence → unknown.
 - `core/analytics/focus_blocks.py`: duration totals and longest continuous presence block.
-- `database/store.py` and `schema.sql`: serialized SQLite access, schema version 5, persisted sessions, half-open timeline intervals, and compact observations.
+- `database/store.py` and `schema.sql`: serialized SQLite access, schema version 5, persisted sessions, half-open timeline intervals, and temporary observations. Final status and observation deletion commit together; startup also cleans recovered and legacy sessions. Database compaction reclaims unused pages after cleanup, with failures reported through storage status and retried on startup/session end.
 
 The timeline covers elapsed session time exactly once, including explicit breaks and unknown gaps. Presence changes apply prospectively at the next observation update. An unavailable camera conservatively marks the interval since the previous update unknown. A scheduling/suspend gap longer than three seconds becomes unknown unless an explicit break is active. A crash is recovered at the last saved checkpoint; offline time is not invented as activity.
 
@@ -45,7 +45,7 @@ Changing the active camera setting advances the timeline under the session lock 
 
 State responses include `observation.camera_status`, typed as `off | starting | ready | unavailable` in Python and TypeScript. It is runtime metadata, not a new SQLite column. `ready` means fresh frames and successful face inference, regardless of face count; the separate presence rules determine `present`, `away`, or `unknown`.
 
-Startup is bounded to 15 seconds, after which the worker is released and retry becomes available. Frames older than two seconds are discarded and observations become unavailable. A worker exit and process-start errors produce actionable unavailable messages. The controller reuses a starting/ready setup camera when starting a session and ignores retries while initialization is underway. Retry resets the absence detector without resetting the session or rewriting its timeline. The frontend queues a close request made while preview startup is pending so closing cannot leave a setup camera behind.
+Startup is bounded to 15 seconds in development and 60 seconds in the packaged runtime, after which the worker is released and retry becomes available. Frames older than two seconds are discarded and observations become unavailable. Failed, crashed, or stalled capture releases the worker and its shared buffers; it stays unavailable until an explicit Retry or another user action that starts capture. Late frames cannot revive the old worker. The preview clears after two seconds without a successful frame response, and late responses after timeout or camera-state changes are ignored. The workspace also stops displaying a ready camera when state responses become stale. A worker exit and process-start errors produce actionable unavailable messages. The controller reuses a starting/ready setup camera when starting a session and ignores retries while initialization is underway. Retry resets the absence detector without resetting the session or rewriting its timeline. The frontend queues a close request made while preview startup is pending so closing cannot leave a setup camera behind.
 
 POST requests use JSON, `X-RUFocusing: 1`, and a 4 KiB body limit. The API validates loopback hosts and the configured frontend origin; it grants no cross-origin access. Invalid tasks, modes, and lifecycle transitions return errors. Preview responses disable caching and cross-origin embedding. No frame-upload or recording endpoint exists.
 
@@ -76,7 +76,7 @@ are in [desktop app](desktop-app.md); storage and data boundaries are in [privac
 The authenticated storage API adds `GET /api/storage` and JSON POSTs to
 `/api/storage/delete-session` (`session_id`), `/api/storage/clear-history`, and
 `/api/storage/reset-gaze`. They return `bytes`, `sessions`, `gaze_setup_saved`, and
-`can_delete`; mutations may include a `warning` when compaction fails after deletion.
+`can_delete`; storage status and mutations may include a `warning` when compaction fails after deletion.
 Deletion rejects active sessions. Existing session/report response formats and schema
 version 5 remain unchanged. The development launcher keeps its existing API contract.
 

@@ -9,7 +9,7 @@ RUFocusing estimates a gaze point on **one calibrated display**. It detects face
 3. Follow the fullscreen targets. The interface shows simple progress and an actionable retry if needed.
 4. Successful setup is saved on this device and reused across sessions and restarts. Use **Redo setup** or **Setup options → Reset gaze setup** when needed.
 
-The live interface shows a compact gaze status; maps, quality numbers, reliability controls, and diagnostic reports are developer-only. Camera/display mismatches and seating changes suppress estimates until compatible observations resume or setup is redone. Temporary loss, preview closure, camera toggles, and breaks do not erase the saved profile. Matching-resolution monitors cannot always be distinguished by browser geometry; redo setup after switching physical displays or cameras when necessary.
+The normal interface shows a compact gaze status; maps, quality numbers, reliability controls, and diagnostic reports are developer-only. Use `?diagnostics=1#record` on the local development URL for accuracy checks and trials; production installers exclude these controls. Camera/display mismatches and seating changes suppress estimates until compatible observations resume or setup is redone. Temporary loss, preview closure, camera toggles, and breaks do not erase the saved profile. Matching-resolution monitors cannot always be distinguished by browser geometry; redo setup after switching physical displays or cameras when necessary.
 
 
 ## Model and quality gates
@@ -24,7 +24,7 @@ Versioned quality heuristics reject clipped faces, face widths below 12% of the 
 
 Relative to calibration, face-center displacement above 10% of a frame dimension, scale outside 0.75–1.25, or pitch/yaw outside the training range plus ten degrees immediately hides the point. Sustained departure for two seconds prompts a return to the setup position or a new setup, while preserving the saved model. Invalid frames, blinks, multiple faces, and estimates outside [0,1] clear the point and smoothing. Outside estimates are not clamped to screen edges and do not prove that a person is looking away.
 
-Valid points use a 250 ms time-constant exponential smoother. Observations older than 750 ms are unavailable, independently of the existing two-second camera freshness threshold. The frontend clears its ready status when the service response is stale or slow. Live gaze sampling targets approximately five frames/second; checkpoints remain approximately one second. Gaze intervals use one checkpoint timestamp, apply valid changes prospectively, and mark missing evidence/scheduling gaps unknown.
+Valid points use a 250 ms time-constant exponential smoother. Observations older than 750 ms are unavailable, independently of the existing two-second camera freshness threshold. The frontend clears its ready status when the service response is stale or slow. Target collection begins after the target is painted. Cancellation, camera disable, navigation, and unmount invalidate pending setup requests, including late fullscreen grants. Failed or unsaved replacement calibration restores the previous accepted setup; a failed independent accuracy check rejects the matching saved profile. Live gaze sampling targets approximately five frames/second; checkpoints remain approximately one second. Gaze intervals use one checkpoint timestamp, apply valid changes prospectively, and mark missing evidence/scheduling gaps unknown.
 
 ## API and persistence
 
@@ -38,7 +38,7 @@ Valid points use a 250 ms time-constant exponential smoother. Observations older
 
 All POSTs retain JSON, `X-RUFocusing: 1`, loopback/origin checks, and the 4 KiB request limit. Camera/session commands share the controller lock with calibration commands.
 
-Schema version 2 introduced separate `calibrations`, `gaze_observations`, and `gaze_intervals` tables through a transactional migration. Accepted model parameters/version/display geometry/error statistics and compact point observations are stored locally. Raw training samples are discarded after fitting/validation. Full meshes, images, and video are never saved. Old sessions have no gaze summary; new timer-only sessions have unknown gaze time. Gaze coverage is valid gaze duration divided by study duration, excluding breaks, with N/A for zero study duration.
+Schema version 2 introduced separate `calibrations`, `gaze_observations`, and `gaze_intervals` tables through a transactional migration. Accepted model parameters/version/display geometry/error statistics are stored locally. Point observations are temporary and automatically deleted when the session ends or is recovered after interruption; interval summaries and calibration links remain for reports. Raw training samples are discarded after fitting/validation. Full meshes, images, and video are never saved. Old sessions have no gaze summary; new timer-only sessions have unknown gaze time. Gaze coverage is valid gaze duration divided by study duration, excluding breaks, with N/A for zero study duration.
 
 ## Validation record and physical acceptance
 
@@ -60,7 +60,7 @@ Desktop and mobile layouts are checked for overflow at 320, 375, 768, and 1440 p
 | Nearer/farther seating and moderate head movement | Point suppression and recalibration behavior |
 | Blinks, leaving frame, another face | Immediate point hiding; no stale-point carryover |
 | Break/resume and camera toggle | Preserved session time; no gaze during breaks/off periods |
-| Camera retry/display changes | Recalibration required; earlier intervals preserved |
+| Camera retry/display changes | Compatible saved setup is reused; incompatible geometry suppresses estimates; earlier intervals preserved |
 
 Use only participating users who agree to the test. Do not treat a single passing calibration as proof of performance across lighting, eyewear, or users. Record failures as well as passes and keep estimates suppressed when validation fails.
 

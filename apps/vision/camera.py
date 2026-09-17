@@ -144,12 +144,15 @@ class Camera:
         if self.process and not self.process.is_alive() and (self.latest.available or self.latest.camera_status == 'starting'):
             self.latest = Observation(self.clock(), message='Camera processing stopped unexpectedly. Select Retry camera.', camera_status='unavailable')
         elif self.latest.camera_status == 'starting' and age >= STARTUP_TIMEOUT:
-            self._release_process()
             self.latest = Observation(self.clock(), message='Camera startup timed out. Check camera access in system settings, then select Retry camera.', camera_status='unavailable')
         elif self.latest.available and not 0 <= age <= STALE_AFTER:
             self.latest = Observation(self.clock(), message='Camera observations stopped updating. Select Retry camera.', camera_status='unavailable')
         if not self.latest.available:
             self.jpeg = None
+        if self.latest.camera_status == 'unavailable':
+            # Failure is latched until start() is explicitly requested. Releasing
+            # IPC also prevents a late frame from silently reviving capture.
+            self._release_process()
         return self.latest
 
     def preview_frame(self):
